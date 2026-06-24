@@ -218,7 +218,7 @@ with tab1:
     with col_img1:
         if deck_card != "請選擇...":
             # 🌟 顯示從 CSV 讀取出來的卡圖
-            st.image(get_card_image_url(deck_card), use_container_width=True)
+            st.image(get_card_image_url(deck_card), width=150)
 
     st.divider()
     st.write("### 🛒 結帳明細")
@@ -290,7 +290,7 @@ with tab2:
     with col_img2:
         if card_to_add != "請選擇...":
             # 🌟 顯示卡圖
-            st.image(get_card_image_url(card_to_add), use_container_width=True)
+            st.image(get_card_image_url(card_to_add), use_container_width=150)
 
     st.divider()
     
@@ -407,7 +407,7 @@ with tab3:
                 st.success(f"已暫存 {add_qty} 張 {search_card}！請記得切換回背包頁面存檔。")
         with col_img3:
             # 🌟 顯示大張卡圖
-            st.image(get_card_image_url(search_card), use_container_width=True)
+            st.image(get_card_image_url(search_card), use_container_width=150)
     else:
         st.info("👆 請從上方選單選擇，或使用下方的快速搜尋。")
         
