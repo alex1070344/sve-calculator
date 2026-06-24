@@ -116,9 +116,10 @@ def save_inventory_to_sheets():
             if q > 0:
                 final_inv[c_id] = q
         
-        # 3. 將合併後的最終完美結果，一次性寫回 Google Sheets
+       # 3. 將合併後的最終完美結果，一次性寫回 Google Sheets
         data = [["卡號", "擁有數量"]]
-        for c_id, q in final_inv.items():
+        # 🌟 關鍵改動：在 final_inv.items() 外面加上 sorted()，寫入前就會自動排序！
+        for c_id, q in sorted(final_inv.items()):
             data.append([c_id, q])
             
         current_sheet.clear()
