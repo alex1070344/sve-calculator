@@ -16,17 +16,14 @@ if "deck_list" not in st.session_state:
 # 🌟 雲端工具 1：連線並讀取 Google Sheets 庫存
 def load_inventory_from_sheets():
     try:
-        # 從 Streamlit Secrets 讀取憑證
         creds_dict = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # 開啟指定的雲端試算表
         sheet = client.open("SVE_Inventory").sheet1
         records = sheet.get_all_records()
         
-        # 轉換成程式好處理的字典格式
         inv = {}
         for row in records:
             if '卡號' in row and '擁有數量' in row:
@@ -42,13 +39,11 @@ def save_inventory_to_sheets(sheet, inv_dict):
         st.error("⚠️ 無法儲存，試算表連線未建立。")
         return
     try:
-        # 準備要寫入的二維陣列資料
         data = [["卡號", "擁有數量"]]
         for c_id, q in inv_dict.items():
             if q > 0:
                 data.append([c_id, q])
         
-        # 清空舊資料並填入新資料
         sheet.clear()
         sheet.update('A1', data)
     except Exception as e:
@@ -113,18 +108,58 @@ with tab1:
             st.success(f"✅ 已將 {deck_qty} 張 【{deck_card}】 加入牌組！")
             st.rerun()
 
-    with st.expander("📝 進階：使用文字批次匯入牌組"):
-        deck_input = st.text_area("直接貼上牌組清單 (卡號與數量用空白隔開)：", height=100)
-        if st.button("批次匯入"):
-            lines = deck_input.strip().split('\n')
-            for line in lines:
-                parts = line.split()
-                if len(parts) >= 2:
-                    c_id = parts[0].strip()
-                    try: q = int(parts[1].strip())
-                    except: q = 1
-                    st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
-            st.rerun()
+    # 🌟 結帳區大改版：加入 CSV 牌組匯入功能
+    with st.expander("📝 進階：批次匯入牌組 (文字 / CSV)"):
+        col_text, col_csv = st.columns(2)
+        
+        # 左側：文字貼上
+        with col_text:
+            st.write("#### ✍️ 文字貼上")
+            deck_input = st.text_area("貼上牌組清單 (卡號與數量用空白隔開)：", height=100)
+            if st.button("確認匯入文字"):
+                lines = deck_input.strip().split('\n')
+                for line in lines:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        c_id = parts[0].strip()
+                        try: q = int(parts[1].strip())
+                        except: q = 1
+                        st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
+                st.rerun()
+                
+        # 右側：CSV 上傳
+        with col_csv:
+            st.write("#### 📁 上傳 CSV 牌組檔")
+            st.caption("格式：第一欄填卡號，第二欄填數量")
+            deck_csv_file = st.file_uploader("選擇你的 CSV 牌組檔", type=["csv"], key="deck_csv_uploader")
+            
+            if deck_csv_file is not None:
+                if st.button("🚀 確認匯入 CSV 牌組"):
+                    try:
+                        stringio = io.StringIO(deck_csv_file.getvalue().decode("utf-8-sig"))
+                        reader = csv.reader(stringio)
+                        # 假設第一行可能是標題 (如 "卡號", "數量")，先讀取但不強迫跳過，以防沒有標題
+                        first_row = next(reader, None)
+                        if first_row and not (first_row[0].startswith("BP") or first_row[0].startswith("SD") or first_row[0].startswith("PR")):
+                            # 如果第一行的開頭不像卡號，就當作它是標題跳過
+                            pass
+                        else:
+                            # 如果是卡號，就直接加進去
+                            if len(first_row) >= 2:
+                                st.session_state.deck_list[first_row[0].strip()] = st.session_state.deck_list.get(first_row[0].strip(), 0) + int(first_row[1].strip())
+                        
+                        # 繼續讀取剩下的行數
+                        for row in reader:
+                            if len(row) >= 2:
+                                c_id = row[0].strip()
+                                try: q = int(row[1].strip())
+                                except: q = 1
+                                st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
+                                
+                        st.success("🎉 CSV 牌組已成功匯入！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"檔案讀取失敗，請確認格式。詳細錯誤：{e}")
 
     st.divider()
     
@@ -279,7 +314,6 @@ with tab2:
         with col_dl:
             st.write("#### ⬇️ 下載備份檔")
             if my_inventory:
-                # 建立記憶體內的 CSV 字串
                 output = io.StringIO()
                 writer = csv.writer(output)
                 writer.writerow(["卡號", "擁有數量"])
@@ -293,7 +327,7 @@ with tab2:
                 
         with col_ul:
             st.write("#### ⬆️ 上傳還原檔至雲端")
-            uploaded_file = st.file_uploader("選擇你的 CSV 備份檔", type=["csv"])
+            uploaded_file = st.file_uploader("選擇你的 CSV 備份檔", type=["csv"], key="inventory_csv_uploader")
             
             if uploaded_file is not None:
                 import_mode = st.radio(
