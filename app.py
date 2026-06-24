@@ -323,9 +323,47 @@ with tab2:
             if q > 0: writer.writerow([c_id, q])
         st.download_button(label="📥 下載庫存 CSV 備份", data=output.getvalue(), file_name=f"{selected_backpack}_inventory.csv", mime="text/csv")
 
-# ----- 分頁 3：單價與卡圖查詢區 (強大的全域搜尋) -----
+# ----- 分頁 3：單價與卡圖查詢區 -----
 with tab3:
-    st.subheader("🔍 關鍵字快速搜尋 (支援卡名、日文、卡號)")
+    st.subheader("🔍 選擇卡片或搜尋關鍵字")
+    
+    # 🌟 恢復：三層分類選單
+    col_p3, col_r3, col_c3 = st.columns(3)
+    with col_p3: search_pack = st.selectbox("1. 選擇卡包：", ["全部"] + packs, key="search_pack")
+    cards_in_pack3 = all_cards if search_pack == "全部" else [c for c in all_cards if c.startswith(search_pack + "-")]
+    prefixes3 = sorted(list(set([get_prefix(c) for c in cards_in_pack3])))
+    
+    with col_r3: search_prefix = st.selectbox("2. 選擇編號前綴：", ["全部"] + prefixes3, key="search_prefix")
+    cards_in_prefix3 = sorted(cards_in_pack3 if search_prefix == "全部" else [c for c in cards_in_pack3 if get_prefix(c) == search_prefix])
+    
+    card_options3 = [f"{c} - {card_names.get(c, '未知')}" for c in cards_in_prefix3]
+    with col_c3: selected_option3 = st.selectbox("3. 選擇卡號/卡名：", ["請選擇..."] + card_options3, key="search_select")
+
+    st.divider()
+
+    # 🌟 顯示下拉選單選中的卡片
+    if selected_option3 != "請選擇...":
+        c_id_dropdown = selected_option3.split(" - ")[0]
+        col_info_d, col_img_d = st.columns([3, 1])
+        with col_info_d:
+            st.markdown(f"### 🏷️ {c_id_dropdown}")
+            st.markdown(f"#### 🃏 卡名：**{card_names.get(c_id_dropdown, '未知')}**")
+            st.markdown(f"#### 💸 價格：<span style='color: #4CAF50;'>{prices.get(c_id_dropdown, 0)} 円</span>", unsafe_allow_html=True)
+            
+            st.write("")
+            quick_qty_d = st.number_input(f"想要快速加入幾張到【{selected_backpack}】？", min_value=1, value=1, key="q_qty_drop")
+            if st.button(f"🚀 快速加到背包", key="q_btn_drop"):
+                st.session_state.my_inventory[c_id_dropdown] = st.session_state.my_inventory.get(c_id_dropdown, 0) + quick_qty_d
+                st.session_state.unsaved_changes = True
+                st.success(f"已成功暫存 {quick_qty_d} 張！記得切換回『背包庫存』分頁按下儲存喔！")
+        with col_img_d:
+            st.image(get_card_image_url(c_id_dropdown), width=180)
+    else:
+        st.info("👆 請從上方選單選擇，或使用下方的快速搜尋。")
+
+    # 🌟 下半部：關鍵字搜尋區塊
+    st.write("---")
+    st.subheader("⚡ 關鍵字快速搜尋 (支援卡名、日文、卡號)")
     st.caption("可以直接打卡片日文（例如：マーリン）或是卡號（例如：BP14），系統會進行全庫比對。")
     
     keyword = st.text_input("請輸入卡名或卡號關鍵字：", key="global_search_input")
@@ -340,7 +378,6 @@ with tab3:
                     st.markdown(f"#### 🃏 卡名：**{card_names.get(c_id, '未知')}**")
                     st.markdown(f"#### 💸 價格：<span style='color: #4CAF50;'>{prices.get(c_id, 0)} 円</span>", unsafe_allow_html=True)
                     
-                    # 快速登記按鈕
                     st.write("")
                     quick_qty = st.number_input(f"想要快速加入幾張到【{selected_backpack}】？", min_value=1, value=1, key=f"q_qty_{c_id}")
                     if st.button(f"🚀 快速加到背包", key=f"q_btn_{c_id}"):
