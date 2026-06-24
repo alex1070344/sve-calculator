@@ -8,7 +8,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="SVE 缺卡計算機", page_icon="🃏", layout="wide")
 
 # ==========================================
-# 🌟 初始化：網頁記憶體 (Session State)
+# 🌟 初始化：網頁記憶體
 if "deck_list" not in st.session_state: st.session_state.deck_list = {}
 if "my_inventory" not in st.session_state: st.session_state.my_inventory = {}
 if "current_bp_name" not in st.session_state: st.session_state.current_bp_name = ""
@@ -32,7 +32,7 @@ if not client: st.stop()
 
 # 🌟 2. 鎖定試算表檔案
 try:
-    # ⚠️ 請確保這裡是你的正確 ID
+    # ⚠️⚠️⚠️ 請確保這裡是你的正確 ID ⚠️⚠️⚠️
     sheet_id = "1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4" 
     doc = client.open_by_key(sheet_id)
 except Exception as e:
@@ -71,10 +71,9 @@ with st.sidebar:
 st.title(f"🃏 SVE 缺卡計算機 ─ 【{selected_backpack}】")
 
 # ==========================================
-# 🌟 4. 讀取與儲存邏輯
+# 🌟 4. 讀取與儲存邏輯 (智能合併)
 current_sheet = doc.worksheet(selected_backpack)
 
-# 【核心變更】：只有在「切換背包」時，才去 Google 讀取一次資料
 if st.session_state.current_bp_name != selected_backpack:
     try:
         records = current_sheet.get_all_records()
@@ -91,49 +90,34 @@ if st.session_state.current_bp_name != selected_backpack:
 
 def save_inventory_to_sheets():
     try:
-        # 1. 【關鍵升級】儲存前，先偷偷去雲端抓取「此時此刻最新」的資料
         records = current_sheet.get_all_records()
         cloud_inv = {}
         for row in records:
             if '卡號' in row and '擁有數量' in row:
-                try: 
-                    cloud_inv[str(row['卡號'])] = int(row['擁有數量'])
-                except: 
-                    pass
+                try: cloud_inv[str(row['卡號'])] = int(row['擁有數量'])
+                except: pass
         
-        # 2. 進行「智能聯集合併 (Smart Merge)」
         final_inv = {}
-        
-        # 規則 A：如果某張卡在雲端有，但我們「本地大腦」完全沒有這個 Key，
-        # 說明這是別人在這段期間新加的，我們必須保留它，不要抹除！
         for c_id, q in cloud_inv.items():
             if c_id not in st.session_state.my_inventory:
                 final_inv[c_id] = q
-        
-        # 規則 B：接著，把我們自己大腦裡有登記的卡片放進去。
-        # 如果大腦裡數量 > 0 就保留；如果被我們減到 0，就不放進 final_inv（達到刪除效果）
         for c_id, q in st.session_state.my_inventory.items():
             if q > 0:
                 final_inv[c_id] = q
         
-       # 3. 將合併後的最終完美結果，一次性寫回 Google Sheets
         data = [["卡號", "擁有數量"]]
-        # 🌟 關鍵改動：在 final_inv.items() 外面加上 sorted()，寫入前就會自動排序！
         for c_id, q in sorted(final_inv.items()):
             data.append([c_id, q])
             
         current_sheet.clear()
-        try: 
-            current_sheet.update(values=data, range_name='A1')
-        except: 
-            current_sheet.update('A1', data)
+        try: current_sheet.update(values=data, range_name='A1')
+        except: current_sheet.update('A1', data)
             
-        # 4. 寫入成功後，順便把我們本地網頁的大腦，更新為合併後的最新狀態
         st.session_state.my_inventory = final_inv
         st.session_state.unsaved_changes = False
         return True
     except Exception as e:
-        st.error(f"❌ 智能雲端同步失敗: {e}")
+        st.error(f"❌ 雲端同步失敗: {e}")
         return False
 
 def get_prefix(card_id):
@@ -146,18 +130,33 @@ def get_prefix(card_id):
     return prefix if prefix else "一般編號"
 
 # ==========================================
-# 讀取本機價格表
+# 🌟 5. 讀取本機價格表與圖片網址
 prices = {}
+card_images = {} # 存放卡圖網址的字典
+
 try:
     with open("cards_price.csv", "r", encoding="utf-8-sig") as file:
         reader = csv.reader(file)
-        next(reader)
-        for row in reader: prices[row[0]] = int(row[1])
-except: pass
+        next(reader) # 跳過標題
+        for row in reader: 
+            if len(row) >= 2:
+                prices[row[0]] = int(row[1])
+            # 如果 CSV 裡面有第三個欄位，就把圖片網址存起來
+            if len(row) >= 3 and row[2].startswith("http"):
+                card_images[row[0]] = row[2]
+except: 
+    pass
+
+def get_card_image_url(card_id):
+    """取得卡圖網址，如果 CSV 沒抓到就給預設假圖"""
+    if card_id in card_images and card_images[card_id]:
+        return card_images[card_id]
+    return f"https://placehold.co/300x420/1E1E1E/FFD700.png?text={card_id}"
 
 # ==========================================
-tab1, tab2, tab3 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產", "💰 單卡價格查詢"])
+tab1, tab2, tab3 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產", "💰 單卡價格與卡圖查詢"])
 
+# -----------------------------------------------------------
 # ----- 分頁 1：結帳區 -----
 with tab1:
     st.subheader("🔍 查詢並加入結帳牌組")
@@ -174,44 +173,52 @@ with tab1:
     
     with col_c1: deck_card = st.selectbox("3. 選擇卡號：", ["請選擇..."] + cards_in_prefix1, key="deck_card")
     with col_q1: deck_qty = st.number_input("4. 需要幾張？", min_value=1, max_value=50, value=1, key="deck_qty")
-        
-    if st.button("➕ 加入結帳牌組"):
-        if deck_card != "請選擇...":
-            st.session_state.deck_list[deck_card] = st.session_state.deck_list.get(deck_card, 0) + deck_qty
-            st.success(f"✅ 已加入 {deck_qty} 張 【{deck_card}】")
-            st.rerun()
-
-    with st.expander("📝 進階：批次匯入牌組"):
-        col_text, col_csv = st.columns(2)
-        with col_text:
-            deck_input = st.text_area("✍️ 貼上牌組文字：", height=100)
-            if st.button("確認匯入文字"):
-                for line in deck_input.strip().split('\n'):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        c_id = parts[0].strip()
-                        try: q = int(parts[1].strip())
-                        except: q = 1
-                        st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
+    
+    # 🌟 版面配置：左邊按鈕區，右邊顯示卡圖預覽
+    col_btn1, col_img1 = st.columns([3, 1])
+    with col_btn1:
+        st.write("") # 排版用
+        if st.button("➕ 加入結帳牌組"):
+            if deck_card != "請選擇...":
+                st.session_state.deck_list[deck_card] = st.session_state.deck_list.get(deck_card, 0) + deck_qty
+                st.success(f"✅ 已加入 {deck_qty} 張 【{deck_card}】")
                 st.rerun()
                 
-        with col_csv:
-            deck_csv_file = st.file_uploader("📁 上傳 CSV 牌組", type=["csv"], key="deck_csv_uploader")
-            if deck_csv_file is not None and st.button("🚀 確認匯入 CSV"):
-                try:
-                    reader = csv.reader(io.StringIO(deck_csv_file.getvalue().decode("utf-8-sig")))
-                    first_row = next(reader, None)
-                    if first_row and first_row[0].startswith(("BP", "SD", "PR")) and len(first_row) >= 2: 
-                        st.session_state.deck_list[first_row[0].strip()] = st.session_state.deck_list.get(first_row[0].strip(), 0) + int(first_row[1].strip())
-                    for row in reader:
-                        if len(row) >= 2:
-                            c_id = row[0].strip()
-                            try: q = int(row[1].strip())
+        with st.expander("📝 進階：批次匯入牌組 (支援字體防呆)"):
+            col_text, col_csv = st.columns(2)
+            with col_text:
+                deck_input = st.text_area("✍️ 貼上牌組文字：", height=100)
+                if st.button("確認匯入文字"):
+                    for line in deck_input.strip().split('\n'):
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            c_id = parts[0].strip()
+                            try: q = int(parts[1].strip())
                             except: q = 1
-                            st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
-                    st.success("匯入成功！")
+                            if c_id in prices: st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
                     st.rerun()
-                except Exception as e: st.error(f"檔案讀取失敗：{e}")
+            with col_csv:
+                deck_csv_file = st.file_uploader("📁 上傳 CSV 牌組", type=["csv"], key="deck_csv_uploader")
+                if deck_csv_file is not None and st.button("🚀 確認匯入 CSV"):
+                    try:
+                        reader = csv.reader(io.StringIO(deck_csv_file.getvalue().decode("utf-8-sig")))
+                        first_row = next(reader, None)
+                        if first_row and first_row[0].startswith(("BP", "SD", "PR")) and len(first_row) >= 2: 
+                            if first_row[0].strip() in prices: st.session_state.deck_list[first_row[0].strip()] = st.session_state.deck_list.get(first_row[0].strip(), 0) + int(first_row[1].strip())
+                        for row in reader:
+                            if len(row) >= 2:
+                                c_id = row[0].strip()
+                                try: q = int(row[1].strip())
+                                except: q = 1
+                                if c_id in prices: st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
+                        st.success("匯入成功！")
+                        st.rerun()
+                    except Exception as e: st.error(f"檔案讀取失敗：{e}")
+
+    with col_img1:
+        if deck_card != "請選擇...":
+            # 🌟 顯示從 CSV 讀取出來的卡圖
+            st.image(get_card_image_url(deck_card), use_container_width=True)
 
     st.divider()
     st.write("### 🛒 結帳明細")
@@ -249,10 +256,9 @@ with tab1:
                 st.rerun()
     else: st.info("牌組空空如也。")
 
-# ----- 分頁 2：背包區 (🌟 加入批次儲存功能) -----
+# -----------------------------------------------------------
+# ----- 分頁 2：背包區 -----
 with tab2:
-    
-    # 🌟 提示儲存的超大按鈕區塊
     if st.session_state.unsaved_changes:
         st.warning("⚠️ 你的背包目前有【尚未儲存】的變更！離開前請記得存檔。")
         if st.button("💾 將變更儲存至 Google 雲端", type="primary", use_container_width=True):
@@ -272,11 +278,19 @@ with tab2:
     with col_c2: card_to_add = st.selectbox("3. 選擇卡號：", ["請選擇..."] + cards_in_prefix2, key="inv_card")
     with col_q2: qty_to_add = st.number_input("4. 擁有幾張？", min_value=0, max_value=50, value=1, key="inv_qty")
         
-    if st.button("➕ 加入背包 (暫存)"):
+    col_btn2, col_img2 = st.columns([3, 1])
+    with col_btn2:
+        st.write("")
+        if st.button("➕ 加入背包 (暫存)"):
+            if card_to_add != "請選擇...":
+                st.session_state.my_inventory[card_to_add] = st.session_state.my_inventory.get(card_to_add, 0) + qty_to_add
+                st.session_state.unsaved_changes = True 
+                st.rerun()
+
+    with col_img2:
         if card_to_add != "請選擇...":
-            st.session_state.my_inventory[card_to_add] = st.session_state.my_inventory.get(card_to_add, 0) + qty_to_add
-            st.session_state.unsaved_changes = True # 標記已修改
-            st.rerun()
+            # 🌟 顯示卡圖
+            st.image(get_card_image_url(card_to_add), use_container_width=True)
 
     st.divider()
     
@@ -317,12 +331,12 @@ with tab2:
                 if c_minus.button("➖", key=f"inv_minus_{c_id}"):
                     st.session_state.my_inventory[c_id] -= 1
                     if st.session_state.my_inventory[c_id] < 0: st.session_state.my_inventory[c_id] = 0
-                    st.session_state.unsaved_changes = True # 標記已修改
+                    st.session_state.unsaved_changes = True
                     st.rerun()
                 c_qty.markdown(f"### {qty}")
                 if c_plus.button("➕", key=f"inv_plus_{c_id}"):
                     st.session_state.my_inventory[c_id] += 1
-                    st.session_state.unsaved_changes = True # 標記已修改
+                    st.session_state.unsaved_changes = True 
                     st.rerun()
         else: st.warning("無符合條件的卡片。")
     else: st.info("背包空空如也。")
@@ -355,17 +369,16 @@ with tab2:
                         if import_mode.startswith("🔄"): st.session_state.my_inventory.clear()
                         for row in reader:
                             if len(row) >= 2: st.session_state.my_inventory[row[0]] = st.session_state.my_inventory.get(row[0], 0) + int(row[1]) if not import_mode.startswith("🔄") else int(row[1])
-                        st.session_state.unsaved_changes = True # 標記已修改
+                        st.session_state.unsaved_changes = True 
                         st.success("🎉 資料匯入成功！請記得按下上方的「儲存至雲端」按鈕。")
                         st.rerun()
                     except Exception as e: st.error(f"檔案格式錯誤：{e}")
 
 # -----------------------------------------------------------
-# ----- 分頁 3：單價查詢區 -----
+# ----- 分頁 3：單價與卡圖查詢區 -----
 with tab3:
-    st.subheader("🔍 查詢單張卡片價格")
+    st.subheader("🔍 查詢單張卡片價格與卡圖")
     
-    # 模式一：選單查詢
     col_p3, col_r3, col_c3 = st.columns(3)
     with col_p3: search_pack = st.selectbox("1. 選擇卡包：", ["全部"] + packs, key="search_pack")
     cards_in_pack3 = all_cards if search_pack == "全部" else [c for c in all_cards if c.startswith(search_pack + "-")]
@@ -378,35 +391,36 @@ with tab3:
         
     st.divider()
     
-    if search_card != "請選擇...":
-        card_price = prices.get(search_card, 0)
-        st.markdown(f"### 🏷️ 卡號： **{search_card}**")
-        st.markdown(f"### 💸 目前單價： **<span style='color: #4CAF50;'>{card_price} 円</span>**", unsafe_allow_html=True)
+    if search_card != "請选择...":
+        col_info3, col_img3 = st.columns([2, 1])
+        with col_info3:
+            card_price = prices.get(search_card, 0)
+            st.markdown(f"### 🏷️ 卡號： **{search_card}**")
+            st.markdown(f"### 💸 目前單價： **<span style='color: #4CAF50;'>{card_price} 円</span>**", unsafe_allow_html=True)
+            
+            # 加入背包按鈕 (捷徑)
+            st.write("---")
+            add_qty = st.number_input("快速加入背包張數：", min_value=1, max_value=50, value=1, key="quick_add_qty")
+            if st.button("➕ 快速登記至目前的背包", type="primary"):
+                st.session_state.my_inventory[search_card] = st.session_state.my_inventory.get(search_card, 0) + add_qty
+                st.session_state.unsaved_changes = True
+                st.success(f"已暫存 {add_qty} 張 {search_card}！請記得切換回背包頁面存檔。")
+        with col_img3:
+            # 🌟 顯示大張卡圖
+            st.image(get_card_image_url(search_card), use_container_width=True)
     else:
         st.info("👆 請從上方選單選擇，或使用下方的快速搜尋。")
         
-    # 模式二：關鍵字快速搜尋
     st.write("---")
     st.write("#### ⚡ 快速關鍵字搜尋")
-    st.caption("可以直接輸入部分卡號 (例如打 '001' 會列出所有 001 號卡片，或直接打完整卡號 'BP01-001')")
-    
+    st.caption("可以直接輸入部分卡號 (例如打 '001' 或 'BP01-001')")
     quick_search = st.text_input("輸入卡號關鍵字：", key="quick_search_input")
     
     if quick_search:
-        # 找出所有包含關鍵字的卡片 (忽略大小寫)
         results = [c for c in all_cards if quick_search.upper() in c.upper()]
-        
         if results:
             st.success(f"✅ 找到 {len(results)} 筆符合的卡片：")
-            
-            # 建立結果表格
-            search_list = []
-            for c_id in sorted(results):
-                search_list.append({
-                    "卡號": c_id,
-                    "單價 (円)": prices.get(c_id, 0)
-                })
-            
+            search_list = [{"卡號": c_id, "單價 (円)": prices.get(c_id, 0)} for c_id in sorted(results)]
             st.dataframe(search_list, use_container_width=True)
         else:
             st.warning("找不到符合的卡片，請確認輸入的關鍵字是否正確！")
