@@ -19,7 +19,7 @@ if "unsaved_changes" not in st.session_state: st.session_state.unsaved_changes =
 
 # ==========================================
 # 🌟 0. 核心引擎：Deck Log API 直連版
-def fetch_decklog(deck_code):
+def fetch_decklog(deck_code, auto_cheapest=False):
     api_url = f"https://decklog.bushiroad.com/system/app/api/view/{deck_code}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -37,6 +37,10 @@ def fetch_decklog(deck_code):
                         c_id = card.get("card_number")
                         qty = card.get("num", 1) 
                         if c_id:
+                            # 🌟 如果啟用自動找低價，就替換為最便宜的卡號
+                            if auto_cheapest:
+                                c_id = get_cheapest_version(c_id)
+                                
                             st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + qty
                             cards_found += 1
             if cards_found > 0:
@@ -150,6 +154,7 @@ def get_prefix(card_id):
 prices = {}
 card_images = {}
 card_names = {}
+name_to_ids = {} # 🌟 新增：記錄同名卡的所有版本 (卡名 -> [卡號1, 卡號2...])
 
 try:
     with open("cards_price.csv", "r", encoding="utf-8-sig") as file:
@@ -162,10 +167,29 @@ try:
                 card_images[row[0]] = row[2]
             if len(row) >= 4:
                 card_names[row[0]] = row[3]
+                # 🌟 建立卡名與卡號的對照表
+                if row[3] not in name_to_ids:
+                    name_to_ids[row[3]] = []
+                name_to_ids[row[3]].append(row[0])
 except: pass
 
 def get_card_image_url(card_id):
     return card_images.get(card_id) if card_images.get(card_id) else f"https://placehold.co/150x210/1E1E1E/FFD700.png?text={card_id}"
+
+# 🌟 新增：尋找同名最低價版本的函數
+def get_cheapest_version(c_id):
+    name = card_names.get(c_id)
+    if not name or name not in name_to_ids:
+        return c_id
+    
+    # 找出所有同名卡，並過濾掉沒有價格紀錄的
+    valid_candidates = [c for c in name_to_ids[name] if c in prices]
+    if not valid_candidates:
+        return c_id
+        
+    # 找出價格最低的那個卡號
+    cheapest_id = min(valid_candidates, key=lambda x: prices.get(x, float('inf')))
+    return cheapest_id
 
 all_cards = list(prices.keys())
 packs = sorted(list(set([card.split('-')[0] for card in all_cards if '-' in card])))
@@ -201,6 +225,9 @@ with tab1:
                 st.rerun()
                 
         with st.expander("📝 進階：批次匯入牌組 (支援 官方代碼 / 文字 / CSV)"):
+            # 🌟 新增選項：讓使用者決定是否開啟「自動替換低價」
+            auto_cheapest = st.checkbox("💸 抄牌時自動將卡片替換為「同名最低價」版本", value=True)
+            
             col_text, col_csv, col_code = st.columns(3)
             with col_text:
                 deck_input = st.text_area("✍️ 貼上牌組文字：", placeholder="例如: BP01-001 3", height=100)
@@ -211,7 +238,9 @@ with tab1:
                             c_id = parts[0].strip()
                             try: q = int(parts[1].strip())
                             except: q = 1
-                            if c_id in prices: st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
+                            if c_id in prices: 
+                                if auto_cheapest: c_id = get_cheapest_version(c_id)
+                                st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
                     st.rerun()
             with col_csv:
                 deck_csv_file = st.file_uploader("📁 上傳 CSV 牌組", type=["csv"], key="deck_csv_uploader")
@@ -220,13 +249,18 @@ with tab1:
                         reader = csv.reader(io.StringIO(deck_csv_file.getvalue().decode("utf-8-sig")))
                         first_row = next(reader, None)
                         if first_row and first_row[0].startswith(("BP", "SD", "PR")) and len(first_row) >= 2: 
-                            if first_row[0].strip() in prices: st.session_state.deck_list[first_row[0].strip()] = st.session_state.deck_list.get(first_row[0].strip(), 0) + int(first_row[1].strip())
+                            if first_row[0].strip() in prices: 
+                                c_id = first_row[0].strip()
+                                if auto_cheapest: c_id = get_cheapest_version(c_id)
+                                st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + int(first_row[1].strip())
                         for row in reader:
                             if len(row) >= 2:
                                 c_id = row[0].strip()
                                 try: q = int(row[1].strip())
                                 except: q = 1
-                                if c_id in prices: st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
+                                if c_id in prices: 
+                                    if auto_cheapest: c_id = get_cheapest_version(c_id)
+                                    st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + q
                         st.success("匯入成功！")
                         st.rerun()
                     except Exception as e: st.error(f"檔案讀取失敗：{e}")
@@ -237,7 +271,7 @@ with tab1:
                 if st.button("🚀 雲端抓取牌組"):
                     if decklog_code:
                         with st.spinner("正在前往 Deck Log 抓取牌組資料..."):
-                            success, msg = fetch_decklog(decklog_code)
+                            success, msg = fetch_decklog(decklog_code, auto_cheapest)
                             if success: st.success(msg); st.rerun()
                             else: st.error(msg)
 
