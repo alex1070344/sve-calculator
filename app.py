@@ -97,6 +97,15 @@ with st.sidebar:
                 except: new_sheet.update('A1', [["卡號", "擁有數量"]])
                 st.success(f"✅ 建立成功！")
                 st.rerun()
+    with st.expander("🗑️ 刪除當前背包"):
+        st.warning(f"確定要刪除【{selected_backpack}】？這將無法復原喔！")
+        if st.button("🚨 確認刪除"):
+            if len(worksheets) <= 1: 
+                st.error("這是最後一個背包了，無法刪除！")
+            else:
+                doc.del_worksheet(doc.worksheet(selected_backpack))
+                st.success("已成功刪除！")
+                st.rerun()
 
 current_sheet = doc.worksheet(selected_backpack)
 
