@@ -152,7 +152,8 @@ with tab1:
     
     with col_r1: deck_prefix = st.selectbox("2. 選擇編號前綴：", ["全部"] + prefixes1, key="deck_prefix")
     cards_in_prefix1 = cards_in_pack1 if deck_prefix == "全部" else [c for c in cards_in_pack1 if get_prefix(c) == deck_prefix]
-    
+    # 👇 新增這行：將過濾好的清單強制按字母/數字排序！
+    cards_in_prefix1 = sorted(cards_in_prefix1)
     with col_c1: deck_card = st.selectbox("3. 選擇卡號：", ["請選擇..."] + cards_in_prefix1, key="deck_card")
     with col_q1: deck_qty = st.number_input("4. 需要幾張？", min_value=1, max_value=50, value=1, key="deck_qty")
         
@@ -247,6 +248,9 @@ with tab2:
     
     with col_r2: inv_prefix = st.selectbox("2. 選擇編號前綴：", ["全部"] + prefixes2, key="inv_prefix")
     cards_in_prefix2 = cards_in_pack2 if inv_prefix == "全部" else [c for c in cards_in_pack2 if get_prefix(c) == inv_prefix]
+
+    # 👇 新增這行：將過濾好的清單強制按字母/數字排序！
+    cards_in_prefix1 = sorted(cards_in_prefix1)
     
     with col_c2: card_to_add = st.selectbox("3. 選擇卡號：", ["請選擇..."] + cards_in_prefix2, key="inv_card")
     with col_q2: qty_to_add = st.number_input("4. 擁有幾張？", min_value=0, max_value=50, value=1, key="inv_qty")
