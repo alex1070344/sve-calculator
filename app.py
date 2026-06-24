@@ -17,40 +17,40 @@ if "current_bp_name" not in st.session_state: st.session_state.current_bp_name =
 if "unsaved_changes" not in st.session_state: st.session_state.unsaved_changes = False
 
 # ==========================================
-# 🌟 0. 核心引擎：Deck Log API 直連版
+# 🌟 0. 核心引擎：Deck Log API 直連版 (超級偽裝 + 除錯模式)
 def fetch_decklog(deck_code):
-    # 這是我們從你截圖中推敲出來的官方隱藏 API 網址
     api_url = f"https://decklog.bushiroad.com/system/app/api/view/{deck_code}"
+    
+    # 🌟 偽裝得更像真人瀏覽器：加上 Accept 與 Referer
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": f"https://decklog.bushiroad.com/view/{deck_code}" 
     }
     
     try:
-        # 直接對隱藏 API 發出請求
         res = requests.get(api_url, headers=headers, timeout=10)
         
         if res.status_code == 200:
-            # 既然是 JSON，我們就直接把它轉成 Python 的字典 (Dictionary)
             data = res.json()
             cards_found = 0
             
-            # 從你的截圖中，我們知道要把這三個清單裡的卡片都挖出來
             for list_name in ["list", "sub_list", "p_list"]:
                 if list_name in data and isinstance(data[list_name], list):
                     for card in data[list_name]:
-                        # 精準抓取卡號與數量
                         c_id = card.get("card_number")
                         qty = card.get("num", 1) 
                         
                         if c_id:
-                            # 直接寫入我們的結帳購物車！
                             st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + qty
                             cards_found += 1
                             
             if cards_found > 0:
-                return True, f"🎉 API 破解成功！瞬間精準匯入了 {cards_found} 種卡片 (已包含正確數量)！"
+                return True, f"🎉 API 破解成功！瞬間精準匯入了 {cards_found} 種卡片！"
             else:
-                return False, "雖然連上了 API，但裡面沒有卡片資料，可能是空牌組。"
+                # 🌟 啟動透視眼：把官方回傳的真實 JSON 印出來看看！
+                debug_info = str(data)[:300] # 只取前 300 個字避免畫面洗版
+                return False, f"連線成功但抓不到卡片！官方伺服器實際回傳的內容為：\n{debug_info}"
                 
         return False, f"連線 API 失敗 (狀態碼: {res.status_code})"
     except Exception as e:
