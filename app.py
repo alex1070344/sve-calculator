@@ -8,7 +8,14 @@ from oauth2client.service_account import ServiceAccountCredentials
 st.set_page_config(page_title="SVE 缺卡計算機", page_icon="🃏", layout="wide")
 
 # ==========================================
-# 🌟 1. 初始化連線 (全域快取)
+# 🌟 初始化：網頁記憶體 (Session State)
+if "deck_list" not in st.session_state: st.session_state.deck_list = {}
+if "my_inventory" not in st.session_state: st.session_state.my_inventory = {}
+if "current_bp_name" not in st.session_state: st.session_state.current_bp_name = ""
+if "unsaved_changes" not in st.session_state: st.session_state.unsaved_changes = False
+
+# ==========================================
+# 🌟 1. 初始化連線
 @st.cache_resource
 def init_gspread_client():
     try:
@@ -25,6 +32,7 @@ if not client: st.stop()
 
 # 🌟 2. 鎖定試算表檔案
 try:
+    # ⚠️ 請確保這裡是你的正確 ID
     sheet_id = "1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4" 
     doc = client.open_by_key(sheet_id)
 except Exception as e:
@@ -32,12 +40,8 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# 🌟 3. 優化：快取背包清單 (避免每次重整都去問 Google 有哪些分頁)
-@st.cache_data(ttl=60) # 記住 60 秒
-def get_worksheets_titles():
-    return [ws.title for ws in doc.worksheets()]
-
-worksheets = get_worksheets_titles()
+# 🌟 3. 背包管理系統
+worksheets = [ws.title for ws in doc.worksheets()]
 
 with st.sidebar:
     st.title("🎒 我的背包管理")
@@ -52,7 +56,6 @@ with st.sidebar:
                 new_sheet = doc.add_worksheet(title=new_bp_name, rows="1000", cols="2")
                 try: new_sheet.update(values=[["卡號", "擁有數量"]], range_name='A1')
                 except: new_sheet.update('A1', [["卡號", "擁有數量"]])
-                st.cache_data.clear() # 清除快取，強迫重新讀取背包清單
                 st.success(f"✅ 背包【{new_bp_name}】建立成功！")
                 st.rerun()
                 
@@ -62,39 +65,39 @@ with st.sidebar:
             if len(worksheets) <= 1: st.error("最後一個背包無法刪除！")
             else:
                 doc.del_worksheet(doc.worksheet(selected_backpack))
-                st.cache_data.clear()
                 st.success("已刪除！")
                 st.rerun()
 
 st.title(f"🃏 SVE 缺卡計算機 ─ 【{selected_backpack}】")
 
 # ==========================================
-# 🌟 4. 優化：快取庫存資料 (大幅降低 429 Error 的機率)
+# 🌟 4. 讀取與儲存邏輯
 current_sheet = doc.worksheet(selected_backpack)
 
-@st.cache_data(ttl=30) # 記住 30 秒，避免狂點時一直讀取
-def load_inventory_from_sheets(backpack_name):
+# 【核心變更】：只有在「切換背包」時，才去 Google 讀取一次資料
+if st.session_state.current_bp_name != selected_backpack:
     try:
-        sheet = doc.worksheet(backpack_name)
-        records = sheet.get_all_records()
+        records = current_sheet.get_all_records()
         inv = {}
         for row in records:
             if '卡號' in row and '擁有數量' in row:
                 try: inv[str(row['卡號'])] = int(row['擁有數量'])
                 except: pass
-        return inv
+        st.session_state.my_inventory = inv
+        st.session_state.current_bp_name = selected_backpack
+        st.session_state.unsaved_changes = False
     except Exception as e:
-        return {}
+        st.error(f"讀取背包資料失敗：{e}")
 
-def save_inventory_to_sheets(sheet, inv_dict):
+def save_inventory_to_sheets():
     try:
         data = [["卡號", "擁有數量"]]
-        for c_id, q in inv_dict.items():
+        for c_id, q in st.session_state.my_inventory.items():
             if q > 0: data.append([c_id, q])
-        sheet.clear()
-        try: sheet.update(values=data, range_name='A1')
-        except: sheet.update('A1', data)
-        st.cache_data.clear() # 寫入成功後，清除讀取快取，確保下次拿到最新資料
+        current_sheet.clear()
+        try: current_sheet.update(values=data, range_name='A1')
+        except: current_sheet.update('A1', data)
+        st.session_state.unsaved_changes = False
         return True
     except Exception as e:
         st.error(f"❌ 儲存失敗: {e}")
@@ -118,11 +121,6 @@ try:
         next(reader)
         for row in reader: prices[row[0]] = int(row[1])
 except: pass
-
-# 載入庫存 (使用快取版本)
-my_inventory = load_inventory_from_sheets(selected_backpack)
-
-if "deck_list" not in st.session_state: st.session_state.deck_list = {}
 
 # ==========================================
 tab1, tab2 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產"])
@@ -189,7 +187,7 @@ with tab1:
         total_cost = 0
         receipt_list = []
         for c_id, req_qty in st.session_state.deck_list.items():
-            owned_qty = my_inventory.get(c_id, 0)
+            owned_qty = st.session_state.my_inventory.get(c_id, 0)
             missing_qty = max(0, req_qty - owned_qty)
             price = prices.get(c_id, 0)
             if missing_qty > 0:
@@ -218,8 +216,18 @@ with tab1:
                 st.rerun()
     else: st.info("牌組空空如也。")
 
-# ----- 分頁 2：背包區 -----
+# ----- 分頁 2：背包區 (🌟 加入批次儲存功能) -----
 with tab2:
+    
+    # 🌟 提示儲存的超大按鈕區塊
+    if st.session_state.unsaved_changes:
+        st.warning("⚠️ 你的背包目前有【尚未儲存】的變更！離開前請記得存檔。")
+        if st.button("💾 將變更儲存至 Google 雲端", type="primary", use_container_width=True):
+            if save_inventory_to_sheets():
+                st.success("🎉 雲端儲存成功！")
+                st.rerun()
+    
+    st.subheader("📝 登記新卡片")
     col_p2, col_r2, col_c2, col_q2 = st.columns(4)
     with col_p2: inv_pack = st.selectbox("1. 選擇卡包：", ["全部"] + packs, key="inv_pack")
     cards_in_pack2 = all_cards if inv_pack == "全部" else [c for c in all_cards if c.startswith(inv_pack + "-")]
@@ -231,24 +239,24 @@ with tab2:
     with col_c2: card_to_add = st.selectbox("3. 選擇卡號：", ["請選擇..."] + cards_in_prefix2, key="inv_card")
     with col_q2: qty_to_add = st.number_input("4. 擁有幾張？", min_value=0, max_value=50, value=1, key="inv_qty")
         
-    if st.button("➕ 新增至雲端背包"):
+    if st.button("➕ 加入背包 (暫存)"):
         if card_to_add != "請選擇...":
-            my_inventory[card_to_add] = my_inventory.get(card_to_add, 0) + qty_to_add
-            if save_inventory_to_sheets(current_sheet, my_inventory):
-                st.success(f"✅ 成功加入！")
+            st.session_state.my_inventory[card_to_add] = st.session_state.my_inventory.get(card_to_add, 0) + qty_to_add
+            st.session_state.unsaved_changes = True # 標記已修改
+            st.rerun()
 
     st.divider()
     
-    total_backpack_value = sum([prices.get(c_id, 0) * q for c_id, q in my_inventory.items() if q > 0])
+    total_backpack_value = sum([prices.get(c_id, 0) * q for c_id, q in st.session_state.my_inventory.items() if q > 0])
     col_title, col_value = st.columns([2, 1])
-    with col_title: st.write("### 🎒 我的雲端庫存清單")
+    with col_title: st.write("### 🎒 我的庫存清單")
     with col_value: st.info(f"💰 **總資產估值： {total_backpack_value} 円**")
     
-    if my_inventory and any(v > 0 for v in my_inventory.values()):
+    if st.session_state.my_inventory and any(v > 0 for v in st.session_state.my_inventory.values()):
         col_f1, col_f2 = st.columns(2)
-        owned_packs = sorted(list(set([k.split('-')[0] for k, v in my_inventory.items() if '-' in k and v > 0])))
+        owned_packs = sorted(list(set([k.split('-')[0] for k, v in st.session_state.my_inventory.items() if '-' in k and v > 0])))
         with col_f1: filter_pack = st.selectbox("過濾卡包", ["全部"] + owned_packs)
-        filtered_inv = [k for k, v in my_inventory.items() if v > 0]
+        filtered_inv = [k for k, v in st.session_state.my_inventory.items() if v > 0]
         if filter_pack != "全部": filtered_inv = [k for k in filtered_inv if k.startswith(filter_pack + "-")]
             
         owned_prefixes = sorted(list(set([get_prefix(k) for k in filtered_inv])))
@@ -264,7 +272,7 @@ with tab2:
             
             filtered_inv.sort()
             for c_id in filtered_inv:
-                qty = my_inventory[c_id]
+                qty = st.session_state.my_inventory[c_id]
                 unit_price = prices.get(c_id, 0)
                 subtotal = unit_price * qty
                 
@@ -274,16 +282,47 @@ with tab2:
                 c_price.markdown(f"<span style='color: #4CAF50;'>{unit_price} 円</span><br><small style='color: gray;'>(計: {subtotal})</small>", unsafe_allow_html=True)
                 
                 if c_minus.button("➖", key=f"inv_minus_{c_id}"):
-                    my_inventory[c_id] -= 1
-                    if my_inventory[c_id] < 0: my_inventory[c_id] = 0
-                    save_inventory_to_sheets(current_sheet, my_inventory)
+                    st.session_state.my_inventory[c_id] -= 1
+                    if st.session_state.my_inventory[c_id] < 0: st.session_state.my_inventory[c_id] = 0
+                    st.session_state.unsaved_changes = True # 標記已修改
                     st.rerun()
                 c_qty.markdown(f"### {qty}")
                 if c_plus.button("➕", key=f"inv_plus_{c_id}"):
-                    my_inventory[c_id] += 1
-                    save_inventory_to_sheets(current_sheet, my_inventory)
+                    st.session_state.my_inventory[c_id] += 1
+                    st.session_state.unsaved_changes = True # 標記已修改
                     st.rerun()
         else: st.warning("無符合條件的卡片。")
     else: st.info("背包空空如也。")
 
-    # 備份區塊省略保持簡潔
+    # ==========================================
+    # 備份與還原區塊
+    st.write("")
+    with st.expander(f"⚙️ 進階功能：匯出與匯入【{selected_backpack}】"):
+        col_dl, col_ul = st.columns(2)
+        with col_dl:
+            st.write("#### ⬇️ 下載備份檔")
+            if st.session_state.my_inventory:
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["卡號", "擁有數量"])
+                for c_id, q in st.session_state.my_inventory.items():
+                    if q > 0: writer.writerow([c_id, q])
+                st.download_button(label="📥 下載庫存 CSV 備份", data=output.getvalue(), file_name=f"{selected_backpack}_inventory.csv", mime="text/csv")
+            else: st.warning("目前背包無資料。")
+                
+        with col_ul:
+            st.write("#### ⬆️ 上傳還原檔")
+            uploaded_file = st.file_uploader("選擇你的 CSV 備份檔", type=["csv"], key="inventory_csv_uploader")
+            if uploaded_file is not None:
+                import_mode = st.radio("請選擇匯入模式：", ("🔄 取代現有背包", "➕ 增加至現有背包"))
+                if st.button("🚀 執行匯入 (需手動儲存)"):
+                    try:
+                        reader = csv.reader(io.StringIO(uploaded_file.getvalue().decode("utf-8-sig")))
+                        next(reader, None)
+                        if import_mode.startswith("🔄"): st.session_state.my_inventory.clear()
+                        for row in reader:
+                            if len(row) >= 2: st.session_state.my_inventory[row[0]] = st.session_state.my_inventory.get(row[0], 0) + int(row[1]) if not import_mode.startswith("🔄") else int(row[1])
+                        st.session_state.unsaved_changes = True # 標記已修改
+                        st.success("🎉 資料匯入成功！請記得按下上方的「儲存至雲端」按鈕。")
+                        st.rerun()
+                    except Exception as e: st.error(f"檔案格式錯誤：{e}")
