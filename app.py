@@ -23,11 +23,12 @@ def init_gspread_client():
 client = init_gspread_client()
 if not client:
     st.stop()
-
+    
 try:
-    doc = client.open("SVE_Inventory")
+    sheet_id = "1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4" 
+    doc = client.open_by_key(sheet_id)
 except Exception as e:
-    st.error("找不到名為 'SVE_Inventory' 的試算表，請確認已建立並分享給服務帳號！")
+    st.error(f"無法開啟試算表，請確認 ID 是否正確且已分享給服務帳號！詳細錯誤：{e}")
     st.stop()
 
 # ==========================================
