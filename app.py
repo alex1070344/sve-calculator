@@ -91,16 +91,48 @@ if st.session_state.current_bp_name != selected_backpack:
 
 def save_inventory_to_sheets():
     try:
-        data = [["卡號", "擁有數量"]]
+        # 1. 【關鍵升級】儲存前，先偷偷去雲端抓取「此時此刻最新」的資料
+        records = current_sheet.get_all_records()
+        cloud_inv = {}
+        for row in records:
+            if '卡號' in row and '擁有數量' in row:
+                try: 
+                    cloud_inv[str(row['卡號'])] = int(row['擁有數量'])
+                except: 
+                    pass
+        
+        # 2. 進行「智能聯集合併 (Smart Merge)」
+        final_inv = {}
+        
+        # 規則 A：如果某張卡在雲端有，但我們「本地大腦」完全沒有這個 Key，
+        # 說明這是別人在這段期間新加的，我們必須保留它，不要抹除！
+        for c_id, q in cloud_inv.items():
+            if c_id not in st.session_state.my_inventory:
+                final_inv[c_id] = q
+        
+        # 規則 B：接著，把我們自己大腦裡有登記的卡片放進去。
+        # 如果大腦裡數量 > 0 就保留；如果被我們減到 0，就不放進 final_inv（達到刪除效果）
         for c_id, q in st.session_state.my_inventory.items():
-            if q > 0: data.append([c_id, q])
+            if q > 0:
+                final_inv[c_id] = q
+        
+        # 3. 將合併後的最終完美結果，一次性寫回 Google Sheets
+        data = [["卡號", "擁有數量"]]
+        for c_id, q in final_inv.items():
+            data.append([c_id, q])
+            
         current_sheet.clear()
-        try: current_sheet.update(values=data, range_name='A1')
-        except: current_sheet.update('A1', data)
+        try: 
+            current_sheet.update(values=data, range_name='A1')
+        except: 
+            current_sheet.update('A1', data)
+            
+        # 4. 寫入成功後，順便把我們本地網頁的大腦，更新為合併後的最新狀態
+        st.session_state.my_inventory = final_inv
         st.session_state.unsaved_changes = False
         return True
     except Exception as e:
-        st.error(f"❌ 儲存失敗: {e}")
+        st.error(f"❌ 智能雲端同步失敗: {e}")
         return False
 
 def get_prefix(card_id):
