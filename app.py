@@ -156,7 +156,7 @@ try:
 except: pass
 
 # ==========================================
-tab1, tab2 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產"])
+tab1, tab2, tab3 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產", "💰 單卡價格查詢"])
 
 # ----- 分頁 1：結帳區 -----
 with tab1:
@@ -359,3 +359,54 @@ with tab2:
                         st.success("🎉 資料匯入成功！請記得按下上方的「儲存至雲端」按鈕。")
                         st.rerun()
                     except Exception as e: st.error(f"檔案格式錯誤：{e}")
+
+# -----------------------------------------------------------
+# ----- 分頁 3：單價查詢區 -----
+with tab3:
+    st.subheader("🔍 查詢單張卡片價格")
+    
+    # 模式一：選單查詢
+    col_p3, col_r3, col_c3 = st.columns(3)
+    with col_p3: search_pack = st.selectbox("1. 選擇卡包：", ["全部"] + packs, key="search_pack")
+    cards_in_pack3 = all_cards if search_pack == "全部" else [c for c in all_cards if c.startswith(search_pack + "-")]
+    prefixes3 = sorted(list(set([get_prefix(c) for c in cards_in_pack3])))
+    
+    with col_r3: search_prefix = st.selectbox("2. 選擇編號前綴：", ["全部"] + prefixes3, key="search_prefix")
+    cards_in_prefix3 = sorted(cards_in_pack3 if search_prefix == "全部" else [c for c in cards_in_pack3 if get_prefix(c) == search_prefix])
+    
+    with col_c3: search_card = st.selectbox("3. 選擇卡號：", ["請選擇..."] + cards_in_prefix3, key="search_card")
+        
+    st.divider()
+    
+    if search_card != "請選擇...":
+        card_price = prices.get(search_card, 0)
+        st.markdown(f"### 🏷️ 卡號： **{search_card}**")
+        st.markdown(f"### 💸 目前單價： **<span style='color: #4CAF50;'>{card_price} 円</span>**", unsafe_allow_html=True)
+    else:
+        st.info("👆 請從上方選單選擇，或使用下方的快速搜尋。")
+        
+    # 模式二：關鍵字快速搜尋
+    st.write("---")
+    st.write("#### ⚡ 快速關鍵字搜尋")
+    st.caption("可以直接輸入部分卡號 (例如打 '001' 會列出所有 001 號卡片，或直接打完整卡號 'BP01-001')")
+    
+    quick_search = st.text_input("輸入卡號關鍵字：", key="quick_search_input")
+    
+    if quick_search:
+        # 找出所有包含關鍵字的卡片 (忽略大小寫)
+        results = [c for c in all_cards if quick_search.upper() in c.upper()]
+        
+        if results:
+            st.success(f"✅ 找到 {len(results)} 筆符合的卡片：")
+            
+            # 建立結果表格
+            search_list = []
+            for c_id in sorted(results):
+                search_list.append({
+                    "卡號": c_id,
+                    "單價 (円)": prices.get(c_id, 0)
+                })
+            
+            st.dataframe(search_list, use_container_width=True)
+        else:
+            st.warning("找不到符合的卡片，請確認輸入的關鍵字是否正確！")
