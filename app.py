@@ -10,6 +10,7 @@ import pandas as pd
 import re
 from PIL import Image
 import google.generativeai as genai
+import math
 
 st.set_page_config(page_title="SVE 缺卡計算機", page_icon="🃏", layout="wide")
 
@@ -21,6 +22,9 @@ if "current_bp_name" not in st.session_state: st.session_state.current_bp_name =
 if "unsaved_changes" not in st.session_state: st.session_state.unsaved_changes = False
 if "last_scanned_deck" not in st.session_state: st.session_state.last_scanned_deck = []
 if "last_scanned_inv" not in st.session_state: st.session_state.last_scanned_inv = []
+if "master_data_cache" not in st.session_state: st.session_state.master_data_cache = None
+# 🌟 新增圖鑑分頁記憶體
+if "gallery_page" not in st.session_state: st.session_state.gallery_page = 1
 
 # ==========================================
 # 🌟 0. 核心引擎：Deck Log API 直連版
@@ -101,7 +105,7 @@ if not client: st.stop()
 
 try:
     # ⚠️⚠️⚠️ 記得換成你的試算表 ID ⚠️⚠️⚠️
-    sheet_id = "1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4" 
+    sheet_id = "你的試算表ID貼在這裡" 
     doc = client.open_by_key(sheet_id)
 except Exception as e:
     st.error(f"無法開啟試算表：{e}")
@@ -143,6 +147,7 @@ if st.session_state.current_bp_name != selected_backpack:
         st.session_state.my_inventory = {str(row['卡號']): int(row['擁有數量']) for row in records if '卡號' in row}
         st.session_state.current_bp_name = selected_backpack
         st.session_state.unsaved_changes = False
+        st.session_state.gallery_page = 1 # 切換背包時重置圖鑑頁碼
     except Exception as e:
         st.error(f"讀取雲端資料失敗：{e}")
 
@@ -238,9 +243,27 @@ def get_cheapest_version(c_id):
 all_cards = list(prices.keys())
 packs = sorted(list(set([card.split('-')[0] for card in all_cards if '-' in card])))
 
+# 🌟 定義 CSS 來處理未擁有卡片的暗化效果
+st.markdown("""
+<style>
+.card-unowned {
+    filter: grayscale(80%) brightness(0.6);
+    transition: all 0.3s ease;
+}
+.card-unowned:hover {
+    filter: grayscale(40%) brightness(0.8);
+}
+.card-owned {
+    box-shadow: 0 4px 8px rgba(76, 175, 80, 0.4);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ==========================================
 # 🌟 4. 網頁介面設計
-tab1, tab2, tab3, tab4 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產", "💰 單卡價格與卡圖查詢", "📊 所有背包總覽"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產", "💰 單卡價格與卡圖查詢", "📊 所有背包總覽", "📖 全圖鑑收集冊"])
 
 # ----- 分頁 1：結帳區 -----
 with tab1:
@@ -272,7 +295,6 @@ with tab1:
             auto_cheapest = st.checkbox("💸 抄牌或掃描時自動將卡片替換為「同名最低價」版本", value=True, key="chk_cheap_deck")
             st.divider()
             
-            # --- AI 掃描區塊 (結帳區) ---
             st.write("#### 📸 AI 圖片上傳辨識")
             gemini_key_deck = st.text_input("輸入 Gemini API Key 來啟用 AI 掃描：", type="password", key="gemini_key_deck")
             st.caption("免費的 Gemini API Key 可於 [Google AI Studio](https://aistudio.google.com/) 取得。")
@@ -303,7 +325,6 @@ with tab1:
                             else:
                                 st.error(f"辨識失敗，AI 未能找到任何卡號。")
                                 
-            # 視覺確認網格 (結帳區)
             if st.session_state.last_scanned_deck:
                 st.markdown("---")
                 st.markdown("### 👁️ 上次掃描結果視覺確認 (請核對實體卡片)")
@@ -320,7 +341,6 @@ with tab1:
                                 
             st.divider()
             
-            # --- 批次匯入與 Deck Log API ---
             col_text, col_csv, col_code = st.columns(3)
             with col_text:
                 deck_input = st.text_area("✍️ 貼上牌組文字：", placeholder="例如: BP01-001 3", height=100)
@@ -437,7 +457,6 @@ with tab2:
                 st.session_state.unsaved_changes = True 
                 st.rerun()
                 
-        # --- AI 掃描區塊 (背包區) ---
         with st.expander("📸 AI 智慧圖片掃描入庫 (上傳圖片)"):
             st.write("上傳卡圖照片，讓 AI 自動幫你找出卡號並登記入庫！")
             gemini_key_inv = st.text_input("輸入 Gemini API Key：", type="password", key="gemini_key_inv")
@@ -467,7 +486,6 @@ with tab2:
                             else:
                                 st.error(f"辨識失敗，AI 看到的內容是：{raw_text}")
                                 
-        # 視覺確認網格 (背包區)
         if st.session_state.last_scanned_inv:
             st.markdown("---")
             st.markdown("### 👁️ 上次掃描結果視覺確認 (請核對實體卡片)")
@@ -591,7 +609,7 @@ with tab3:
                 with col_img3: st.image(get_card_image_url(c_id), width=180)
                 st.divider()
 
-# ----- 新增分頁 4：所有背包總覽 -----
+# ----- 分頁 4：所有背包總覽 -----
 with tab4:
     st.subheader("📊 全背包庫存交叉大總覽")
     st.caption("點擊下方按鈕將會即時連線掃描 Google Sheet 內的所有分頁背包，並進行數據自動整合與資產清算。")
@@ -613,35 +631,189 @@ with tab4:
                                 if c_id not in master_data:
                                     master_data[c_id] = {t: 0 for t in worksheets}
                                 master_data[c_id][ws_title] = q
-                
-                if master_data:
-                    table_rows = []
-                    grand_total_value = 0
-                    
-                    for c_id, bp_qtys in sorted(master_data.items()):
-                        total_qty = sum(bp_qtys.values())
-                        unit_price = prices.get(c_id, 0)
-                        subtotal_value = unit_price * total_qty
-                        grand_total_value += subtotal_value
-                        
-                        row_dict = {
-                            "卡號": c_id,
-                            "卡牌名稱": card_names.get(c_id, "未知"),
-                            "單價 (円)": unit_price
-                        }
-                        for ws_title in worksheets:
-                            row_dict[f"🎒 {ws_title}"] = bp_qtys[ws_title]
-                            
-                        row_dict["📊 合計張數"] = total_qty
-                        row_dict["💰 總價值 (円)"] = subtotal_value
-                        table_rows.append(row_dict)
-                        
-                    df = pd.DataFrame(table_rows)
-                    st.write("")
-                    st.success(f"### 👑 全庫存終極總資產： **{grand_total_value} 円**")
-                    st.caption(f"💡 目前總共跨背包收集了 {len(master_data)} 種不同的卡片。")
-                    st.dataframe(df, use_container_width=True, height=500)
-                else:
-                    st.info("雲端上所有的背包好像都是空空的喔！")
+                                
+                st.session_state.master_data_cache = master_data
+                st.success("✅ 全背包雲端數據同步成功！已為您開啟下方篩選查找面板。")
             except Exception as e:
                 st.error(f"跨背包整合失敗：{e}")
+
+    if st.session_state.master_data_cache:
+        master_data = st.session_state.master_data_cache
+        all_scanned_ids = list(master_data.keys())
+        scanned_packs = sorted(list(set([cid.split('-')[0] for cid in all_scanned_ids if '-' in cid])))
+        
+        st.write("---")
+        st.markdown("### 🛠️ 庫存分類篩選面板")
+        
+        col_f1_t4, col_f2_t4 = st.columns(2)
+        with col_f1_t4:
+            filter_pack_t4 = st.selectbox("1. 過濾卡包 (全景總覽)", ["全部"] + scanned_packs, key="filter_pack_t4")
+            
+        if filter_pack_t4 == "全部": cards_filtered_by_pack = all_scanned_ids
+        else: cards_filtered_by_pack = [cid for cid in all_scanned_ids if cid.startswith(filter_pack_t4 + "-")]
+            
+        scanned_prefixes = sorted(list(set([get_prefix(cid) for cid in cards_filtered_by_pack])))
+        with col_f2_t4:
+            filter_prefix_t4 = st.selectbox("2. 過濾編號前綴 (全景總覽)", ["全部"] + scanned_prefixes, key="filter_prefix_t4")
+            
+        if filter_prefix_t4 == "全部": final_filtered_ids = cards_filtered_by_pack
+        else: final_filtered_ids = [cid for cid in cards_filtered_by_pack if get_prefix(cid) == filter_prefix_t4]
+            
+        table_rows = []
+        grand_total_value = 0      
+        filtered_total_value = 0   
+        
+        for c_id, bp_qtys in sorted(master_data.items()):
+            total_qty = sum(bp_qtys.values())
+            unit_price = prices.get(c_id, 0)
+            subtotal_value = unit_price * total_qty
+            grand_total_value += subtotal_value
+            
+            if c_id in final_filtered_ids:
+                filtered_total_value += subtotal_value
+                row_dict = {
+                    "卡號": c_id,
+                    "卡牌名稱": card_names.get(c_id, "未知"),
+                    "單價 (円)": unit_price
+                }
+                for ws_title in worksheets: row_dict[f"🎒 {ws_title}"] = bp_qtys[ws_title]
+                row_dict["📊 合計張數"] = total_qty
+                row_dict["💰 總價值 (円)"] = subtotal_value
+                table_rows.append(row_dict)
+                
+        st.write("")
+        c_val1, c_val2 = st.columns(2)
+        with c_val1: st.success(f"👑 全庫存終極總資產： **{grand_total_value} 円**")
+        with c_val2:
+            if filter_pack_t4 != "全部" or filter_prefix_t4 != "全部": st.info(f"🔍 當前篩選範圍資產估值： **{filtered_total_value} 円**")
+            else: st.caption("💡 提示：使用上方選單進行篩選，可動態查看特定包或前綴的價值統計。")
+                
+        if table_rows:
+            df = pd.DataFrame(table_rows)
+            st.dataframe(df, use_container_width=True, height=500)
+        else: st.warning("⚠️ 沒有符合當前篩選條件的卡片！")
+
+# -----------------------------------------------------------
+# 🌟 ----- 新增分頁 5：全圖鑑收集冊 (Gallery) -----
+with tab5:
+    st.subheader(f"📖 【{selected_backpack}】全圖鑑收集冊")
+    if st.session_state.unsaved_changes:
+        st.warning("⚠️ 你有尚未儲存的庫存變更！點擊加號或減號後，請記得去側邊欄或背包區進行『雲端儲存』。")
+        
+    # 1. 設置圖鑑篩選器
+    col_gal_p, col_gal_r, col_gal_s = st.columns([2, 2, 2])
+    with col_gal_p:
+        gal_pack = st.selectbox("圖鑑過濾卡包：", ["全部"] + packs, key="gal_pack")
+        # 當變更篩選條件時，重置回第一頁
+        if "prev_gal_pack" not in st.session_state: st.session_state.prev_gal_pack = gal_pack
+        if st.session_state.prev_gal_pack != gal_pack:
+            st.session_state.gallery_page = 1
+            st.session_state.prev_gal_pack = gal_pack
+            
+    gal_cards_pack = all_cards if gal_pack == "全部" else [c for c in all_cards if c.startswith(gal_pack + "-")]
+    gal_prefixes = sorted(list(set([get_prefix(c) for c in gal_cards_pack])))
+    
+    with col_gal_r:
+        gal_prefix = st.selectbox("圖鑑過濾前綴：", ["全部"] + gal_prefixes, key="gal_prefix")
+        if "prev_gal_prefix" not in st.session_state: st.session_state.prev_gal_prefix = gal_prefix
+        if st.session_state.prev_gal_prefix != gal_prefix:
+            st.session_state.gallery_page = 1
+            st.session_state.prev_gal_prefix = gal_prefix
+            
+    gal_cards_filtered = sorted(gal_cards_pack if gal_prefix == "全部" else [c for c in gal_cards_pack if get_prefix(c) == gal_prefix])
+    
+    with col_gal_s:
+        # 提供僅顯示未擁有/已擁有的選項
+        show_mode = st.selectbox("顯示模式：", ["顯示全部", "只看未擁有", "只看已擁有"], key="gal_mode")
+        if "prev_gal_mode" not in st.session_state: st.session_state.prev_gal_mode = show_mode
+        if st.session_state.prev_gal_mode != show_mode:
+            st.session_state.gallery_page = 1
+            st.session_state.prev_gal_mode = show_mode
+            
+    # 根據顯示模式再次過濾
+    if show_mode == "只看未擁有":
+        gal_cards_filtered = [c for c in gal_cards_filtered if st.session_state.my_inventory.get(c, 0) == 0]
+    elif show_mode == "只看已擁有":
+        gal_cards_filtered = [c for c in gal_cards_filtered if st.session_state.my_inventory.get(c, 0) > 0]
+
+    st.divider()
+
+    # 2. 處理分頁邏輯
+    ITEMS_PER_PAGE = 50
+    total_items = len(gal_cards_filtered)
+    total_pages = math.ceil(total_items / ITEMS_PER_PAGE) if total_items > 0 else 1
+    
+    if st.session_state.gallery_page > total_pages: 
+        st.session_state.gallery_page = total_pages
+
+    # 渲染分頁控制器 (上一頁 / 下一頁)
+    if total_items > 0:
+        col_pag_prev, col_pag_info, col_pag_next = st.columns([1, 4, 1])
+        with col_pag_prev:
+            if st.button("⬅️ 上一頁", use_container_width=True, disabled=st.session_state.gallery_page == 1):
+                st.session_state.gallery_page -= 1
+                st.rerun()
+        with col_pag_info:
+            st.markdown(f"<h4 style='text-align: center;'>第 {st.session_state.gallery_page} 頁 / 共 {total_pages} 頁 (共 {total_items} 張)</h4>", unsafe_allow_html=True)
+        with col_pag_next:
+            if st.button("下一頁 ➡️", use_container_width=True, disabled=st.session_state.gallery_page == total_pages):
+                st.session_state.gallery_page += 1
+                st.rerun()
+
+        # 3. 渲染當前頁面的 50 張卡片網格 (每排 5 張)
+        start_idx = (st.session_state.gallery_page - 1) * ITEMS_PER_PAGE
+        end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
+        current_page_cards = gal_cards_filtered[start_idx:end_idx]
+
+        st.write("")
+        # 每排 5 張
+        cols_per_row = 5
+        for i in range(0, len(current_page_cards), cols_per_row):
+            row_cards = current_page_cards[i:i + cols_per_row]
+            cols = st.columns(cols_per_row)
+            
+            for j, c_id in enumerate(row_cards):
+                with cols[j]:
+                    owned_qty = st.session_state.my_inventory.get(c_id, 0)
+                    img_url = get_card_image_url(c_id)
+                    
+                    # 決定視覺狀態：CSS class 控制亮度
+                    css_class = "card-owned" if owned_qty > 0 else "card-unowned"
+                    
+                    # 顯示帶有 CSS class 的圖片
+                    st.markdown(f'<img src="{img_url}" class="{css_class}" style="width:100%; object-fit:contain; border-radius: 8px;">', unsafe_allow_html=True)
+                    
+                    # 顯示資訊與操作按鈕
+                    st.markdown(f"<div style='text-align: center; margin-top: 8px;'><small><b>{c_id}</b></small><br><small>{card_names.get(c_id, '未知')}</small></div>", unsafe_allow_html=True)
+                    
+                    # 使用微型的 3 分欄來做 加減與顯示數量
+                    c_m, c_q, c_p = st.columns([1, 1, 1])
+                    with c_m:
+                        if st.button("➖", key=f"gal_m_{c_id}", use_container_width=True, disabled=owned_qty == 0):
+                            st.session_state.my_inventory[c_id] -= 1
+                            st.session_state.unsaved_changes = True
+                            st.rerun()
+                    with c_q:
+                        st.markdown(f"<div style='text-align: center; padding-top: 5px;'><b>{owned_qty}</b></div>", unsafe_allow_html=True)
+                    with c_p:
+                        if st.button("➕", key=f"gal_p_{c_id}", use_container_width=True):
+                            st.session_state.my_inventory[c_id] = owned_qty + 1
+                            st.session_state.unsaved_changes = True
+                            st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True) # 增加每排之間的間距
+
+        # 底部再渲染一次分頁控制器，方便長網頁操作
+        st.markdown("---")
+        col_pag_prev_b, col_pag_info_b, col_pag_next_b = st.columns([1, 4, 1])
+        with col_pag_prev_b:
+            if st.button("⬅️ 上一頁 ", use_container_width=True, key="prev_b", disabled=st.session_state.gallery_page == 1):
+                st.session_state.gallery_page -= 1
+                st.rerun()
+        with col_pag_info_b:
+            st.markdown(f"<div style='text-align: center; padding-top: 8px;'>回到頁首</div>", unsafe_allow_html=True)
+        with col_pag_next_b:
+            if st.button("下一頁 ➡️ ", use_container_width=True, key="next_b", disabled=st.session_state.gallery_page == total_pages):
+                st.session_state.gallery_page += 1
+                st.rerun()
+    else:
+        st.info("📦 根據目前的篩選條件，沒有找到任何卡片！")
