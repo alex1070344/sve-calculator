@@ -105,7 +105,7 @@ if not client: st.stop()
 
 try:
     # ⚠️⚠️⚠️ 記得換成你的試算表 ID ⚠️⚠️⚠️
-    sheet_id = "你的試算表ID貼在這裡" 
+    sheet_id = "1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4" 
     doc = client.open_by_key(sheet_id)
 except Exception as e:
     st.error(f"無法開啟試算表：{e}")
