@@ -8,7 +8,6 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
-# 🌟 新增：用於影像處理與 Gemini AI 視覺辨識
 from PIL import Image
 import google.generativeai as genai
 
@@ -20,7 +19,6 @@ if "deck_list" not in st.session_state: st.session_state.deck_list = {}
 if "my_inventory" not in st.session_state: st.session_state.my_inventory = {}
 if "current_bp_name" not in st.session_state: st.session_state.current_bp_name = ""
 if "unsaved_changes" not in st.session_state: st.session_state.unsaved_changes = False
-# 🌟 補上這兩行：用來記住上次掃描成功的卡片，供前端生成對照圖鑑
 if "last_scanned_deck" not in st.session_state: st.session_state.last_scanned_deck = []
 if "last_scanned_inv" not in st.session_state: st.session_state.last_scanned_inv = []
 
@@ -44,7 +42,6 @@ def fetch_decklog(deck_code, auto_cheapest=False):
                         c_id = card.get("card_number")
                         qty = card.get("num", 1) 
                         if c_id:
-                            # 🌟 如果啟用自動找低價，就替換為最便宜的卡號
                             if auto_cheapest:
                                 c_id = get_cheapest_version(c_id)
                                 
@@ -60,15 +57,13 @@ def fetch_decklog(deck_code, auto_cheapest=False):
         return False, f"API 解析發生錯誤: {e}"
 
 # ==========================================
-# ==========================================
-# 🌟 0.5 核心引擎：Gemini AI 圖片掃描 (升級多卡辨識版)
+# 🌟 0.5 核心引擎：Gemini AI 圖片多卡辨識
 def scan_card_image(img_file, api_key):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-2.5-flash')
         img = Image.open(img_file)
         
-        # 🌟 修正提示詞：明確要求 AI 找出「所有」看得到的卡號
         prompt = (
             "這是一張包含多張 Shadowverse Evolve (SVE) 實體卡片的照片。"
             "請運用你的視覺找出照片中「所有」卡片的「卡號」。"
@@ -79,11 +74,10 @@ def scan_card_image(img_file, api_key):
         response = model.generate_content([prompt, img])
         scanned_text = response.text.strip().upper()
         
-        # 🌟 關鍵修正：改用 re.findall，這會把網頁文字裡「所有符合格式的卡號」通通抓出來變成一個 List
         card_ids = re.findall(r'([A-Z]+[0-9]*-[0-9A-Z]+)', scanned_text)
         
         if card_ids:
-            return True, card_ids, scanned_text  # 回傳成功狀態與卡號清單
+            return True, card_ids, scanned_text
         else:
             return False, [], scanned_text
     except Exception as e:
@@ -187,7 +181,7 @@ def get_prefix(card_id):
     return prefix if prefix else "一般編號"
 
 # ==========================================
-# 🌟 3. 載入 CSV 資料 (價格、卡圖、卡名)
+# 🌟 3. 載入 CSV 資料 (價格、卡圖、卡名、同名映射)
 prices = {}
 card_images = {}
 card_names = {}
@@ -274,8 +268,7 @@ with tab1:
                 st.success(f"✅ 已將 {deck_qty} 張 【{c_id}】 加入牌組！")
                 st.rerun()
                 
-        # 🌟 擴充：加入 AI 掃描與進階匯入
-        with st.expander("📝 進階：批次匯入與 📸 AI 圖片掃描"):
+        with st.expander("📝 進階：批次匯入與 📸 AI 圖片上傳辨識"):
             auto_cheapest = st.checkbox("💸 抄牌或掃描時自動將卡片替換為「同名最低價」版本", value=True, key="chk_cheap_deck")
             st.divider()
             
@@ -284,8 +277,7 @@ with tab1:
             gemini_key_deck = st.text_input("輸入 Gemini API Key 來啟用 AI 掃描：", type="password", key="gemini_key_deck")
             st.caption("免費的 Gemini API Key 可於 [Google AI Studio](https://aistudio.google.com/) 取得。")
             
-            # 🌟 只保留檔案上傳功能
-            active_img_deck = st.file_uploader("📂 上傳卡片圖片", type=["jpg", "jpeg", "png"], key="up_deck")
+            active_img_deck = st.file_uploader("📂 上傳卡片圖片 (支援單圖多卡)", type=["jpg", "jpeg", "png"], key="up_deck")
             
             if active_img_deck:
                 if not gemini_key_deck:
@@ -304,7 +296,6 @@ with tab1:
                                         valid_ids.append(c_id)
                                 
                                 if valid_ids:
-                                    # 🌟 記住這次成功加入的卡號列表，並刷新網頁
                                     st.session_state.last_scanned_deck = valid_ids
                                     st.rerun()
                                 else:
@@ -312,34 +303,24 @@ with tab1:
                             else:
                                 st.error(f"辨識失敗，AI 未能找到任何卡號。")
                                 
-            # 🌟 新增：在辨識按鈕下方，動態渲染「卡圖確認網格」
+            # 視覺確認網格 (結帳區)
             if st.session_state.last_scanned_deck:
                 st.markdown("---")
                 st.markdown("### 👁️ 上次掃描結果視覺確認 (請核對實體卡片)")
                 st.caption("以下為 AI 剛剛自動幫您加入結帳明細的卡片。如果發現有錯或漏掉，可直接在下方明細調整張數。")
-                
                 if st.button("🧹 關閉/完成確認", key="clear_preview_deck"):
                     st.session_state.last_scanned_deck = []
                     st.rerun()
                     
-                # 建立 4 分欄網格，橫向排列卡圖
                 cols_deck = st.columns(4)
                 for idx, c_id in enumerate(st.session_state.last_scanned_deck):
                     with cols_deck[idx % 4]:
                         st.image(get_card_image_url(c_id), width=120)
                         st.caption(f"**{c_id}**\n{card_names.get(c_id, '未知')}")
                                 
-                                if added_cards:
-                                    st.success(f"🎉 成功一口氣掃描並加入 {len(added_cards)} 張卡片！\n\n詳細明細：{', '.join(added_cards)}")
-                                    st.rerun()
-                                else:
-                                    st.warning("雖然掃描到了卡號，但比對後發現都不在我們的資料庫中。")
-                            else:
-                                st.error(f"辨識失敗，AI 未能找到任何卡號。")
-                                
             st.divider()
             
-            # --- 原本的批次匯入與 API ---
+            # --- 批次匯入與 Deck Log API ---
             col_text, col_csv, col_code = st.columns(3)
             with col_text:
                 deck_input = st.text_area("✍️ 貼上牌組文字：", placeholder="例如: BP01-001 3", height=100)
@@ -456,13 +437,12 @@ with tab2:
                 st.session_state.unsaved_changes = True 
                 st.rerun()
                 
-        # 🌟 背包區的 AI 圖片掃描擴充
+        # --- AI 掃描區塊 (背包區) ---
         with st.expander("📸 AI 智慧圖片掃描入庫 (上傳圖片)"):
             st.write("上傳卡圖照片，讓 AI 自動幫你找出卡號並登記入庫！")
             gemini_key_inv = st.text_input("輸入 Gemini API Key：", type="password", key="gemini_key_inv")
             
-            # 🌟 只保留檔案上傳功能
-            active_img_inv = st.file_uploader("📂 上傳圖片", type=["jpg", "jpeg", "png"], key="up_inv")
+            active_img_inv = st.file_uploader("📂 上傳圖片 (支援單圖多卡)", type=["jpg", "jpeg", "png"], key="up_inv")
             
             if active_img_inv:
                 if not gemini_key_inv:
@@ -487,12 +467,11 @@ with tab2:
                             else:
                                 st.error(f"辨識失敗，AI 看到的內容是：{raw_text}")
                                 
-        # 🌟 新增：在背包區辨識按鈕下方，動態渲染「卡圖確認網格」
+        # 視覺確認網格 (背包區)
         if st.session_state.last_scanned_inv:
             st.markdown("---")
             st.markdown("### 👁️ 上次掃描結果視覺確認 (請核對實體卡片)")
             st.caption("以下卡片已成功送入臨時背包。請確認卡圖與實體卡是否一致，沒問題請點選上方『儲存至雲端』。")
-            
             if st.button("🧹 關閉/完成確認", key="clear_preview_inv"):
                 st.session_state.last_scanned_inv = []
                 st.rerun()
@@ -502,6 +481,7 @@ with tab2:
                 with cols_inv[idx % 4]:
                     st.image(get_card_image_url(c_id), width=120)
                     st.caption(f"**{c_id}**\n{card_names.get(c_id, '未知')}")
+
     with col_img2:
         if selected_option2 != "請選擇...":
             st.image(get_card_image_url(selected_option2.split(" - ")[0]), width=150)
@@ -611,8 +591,7 @@ with tab3:
                 with col_img3: st.image(get_card_image_url(c_id), width=180)
                 st.divider()
 
-# -----------------------------------------------------------
-# 🌟 ----- 新增分頁 4：所有背包總覽 -----
+# ----- 新增分頁 4：所有背包總覽 -----
 with tab4:
     st.subheader("📊 全背包庫存交叉大總覽")
     st.caption("點擊下方按鈕將會即時連線掃描 Google Sheet 內的所有分頁背包，並進行數據自動整合與資產清算。")
@@ -620,11 +599,7 @@ with tab4:
     if st.button("🔄 讀取並整合所有背包數據", type="primary", use_container_width=True):
         with st.spinner("正在穿越雲端，掃描所有背包分頁中...請稍候..."):
             try:
-                # 建立一個大字典來存放整合資料
-                # 結構: { 卡號: { "背包A": 數量, "背包B": 數量, ... } }
                 master_data = {}
-                
-                # 1. 逐一掃描所有分頁
                 for ws_title in worksheets:
                     ws = doc.worksheet(ws_title)
                     rows = ws.get_all_records()
@@ -639,7 +614,6 @@ with tab4:
                                     master_data[c_id] = {t: 0 for t in worksheets}
                                 master_data[c_id][ws_title] = q
                 
-                # 2. 轉換為漂亮的 Pandas DataFrame 來進行前端展示
                 if master_data:
                     table_rows = []
                     grand_total_value = 0
@@ -650,28 +624,22 @@ with tab4:
                         subtotal_value = unit_price * total_qty
                         grand_total_value += subtotal_value
                         
-                        # 打包每一行的資訊
                         row_dict = {
                             "卡號": c_id,
                             "卡牌名稱": card_names.get(c_id, "未知"),
                             "單價 (円)": unit_price
                         }
-                        # 動態加入各個背包的欄位
                         for ws_title in worksheets:
                             row_dict[f"🎒 {ws_title}"] = bp_qtys[ws_title]
                             
-                        row_dict["📊 合計張外"] = total_qty
+                        row_dict["📊 合計張數"] = total_qty
                         row_dict["💰 總價值 (円)"] = subtotal_value
                         table_rows.append(row_dict)
                         
                     df = pd.DataFrame(table_rows)
-                    
-                    # 呈現資產大總管結果
                     st.write("")
                     st.success(f"### 👑 全庫存終極總資產： **{grand_total_value} 円**")
                     st.caption(f"💡 目前總共跨背包收集了 {len(master_data)} 種不同的卡片。")
-                    
-                    # 顯示超大交叉對照表
                     st.dataframe(df, use_container_width=True, height=500)
                 else:
                     st.info("雲端上所有的背包好像都是空空的喔！")
