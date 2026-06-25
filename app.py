@@ -36,17 +36,16 @@ if "gallery_page" not in st.session_state: st.session_state.gallery_page = 1
 
 # ==========================================
 # 🌟 全域資料載入 (從 utils 呼叫)
-# 1. 確保連線物件只初始化一次
-if "doc" not in st.session_state:
-    client = utils.init_gspread_client()
-    if client:
-        try:
-            st.session_state.doc = client.open_by_key("1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4")
-        except Exception as e:
-            st.error(f"無法開啟試算表：{e}")
-            st.stop()
-    else:
-        st.stop()
+client = utils.init_gspread_client()
+if not client: st.stop()
+
+try:
+    # ⚠️⚠️⚠️ 記得換成你的試算表 ID ⚠️⚠️⚠️
+    sheet_id = "13iEttGIfSgEwXp69Lq1zRkG0y0S9s_4l7tV678A7lVw" 
+    st.session_state.doc = client.open_by_key(sheet_id)
+except Exception as e:
+    st.error(f"無法開啟試算表：{e}")
+    st.stop()
 
 prices, card_images, card_names, name_to_ids, all_cards, packs = utils.load_card_data()
 
@@ -60,40 +59,50 @@ st.session_state.packs = packs
 
 # ==========================================
 # 🌟 側邊欄：背包管理 (共用元件)
-worksheets = [ws.title for ws in st.session_state.doc.worksheets()]
+# 🛡️ 防護罩 1：只在剛開網頁或新增刪除時抓取清單，不要每次按按鈕都抓！
+if "worksheets_list" not in st.session_state:
+    st.session_state.worksheets_list = [ws.title for ws in st.session_state.doc.worksheets()]
+
 with st.sidebar:
     st.title("🎒 背包管理")
-    selected_backpack = st.selectbox("切換背包：", worksheets)
+    selected_backpack = st.selectbox("切換背包：", st.session_state.worksheets_list)
     
     st.divider()
     with st.expander("➕ 建立全新背包"):
         new_bp_name = st.text_input("輸入新背包名稱：")
         if st.button("🚀 建立背包"):
-            if new_bp_name and new_bp_name not in worksheets:
+            if new_bp_name and new_bp_name not in st.session_state.worksheets_list:
                 new_sheet = st.session_state.doc.add_worksheet(title=new_bp_name, rows="1000", cols="2")
                 try: new_sheet.update(values=[["卡號", "擁有數量"]], range_name='A1')
-                except: new_sheet.update('A1', [["卡號", "擁有數量"]])
+                except: new_sheet.update('A1', [["卡號", "拥有數量"]])
                 st.success(f"✅ 建立成功！")
+                # 更新清單並重整
+                st.session_state.worksheets_list = [ws.title for ws in st.session_state.doc.worksheets()]
                 st.rerun()
                 
     with st.expander("🗑️ 刪除當前背包"):
         st.warning(f"確定要刪除【{selected_backpack}】？這將無法復原喔！")
         if st.button("🚨 確認刪除"):
-            if len(worksheets) <= 1: 
+            if len(st.session_state.worksheets_list) <= 1: 
                 st.error("這是最後一個背包了，無法刪除！")
             else:
                 st.session_state.doc.del_worksheet(st.session_state.doc.worksheet(selected_backpack))
                 st.success("已成功刪除！")
+                # 更新清單並重整
+                st.session_state.worksheets_list = [ws.title for ws in st.session_state.doc.worksheets()]
+                # 強制切換狀態以利重抓
+                st.session_state.current_bp_name = "" 
                 st.rerun()
 
-st.session_state.current_sheet = st.session_state.doc.worksheet(selected_backpack)
 st.session_state.selected_backpack = selected_backpack
 
-# 切換背包時的邏輯處理
+# 🛡️ 防護罩 2：只在「第一次載入」或「真正切換背包」時，才發送 API 去抓資料
 if "current_sheet" not in st.session_state or st.session_state.current_bp_name != selected_backpack:
     try:
+        # 這裡的連線指令被 if 保護住了，狂按按鈕也不會觸發
         st.session_state.current_sheet = st.session_state.doc.worksheet(selected_backpack)
         records = st.session_state.current_sheet.get_all_records()
+        
         st.session_state.my_inventory = {str(row['卡號']): int(row['擁有數量']) for row in records if '卡號' in row}
         st.session_state.current_bp_name = selected_backpack
         st.session_state.unsaved_changes = False
