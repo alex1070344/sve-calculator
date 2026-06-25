@@ -62,7 +62,7 @@ def scan_card_image(img_file, api_key):
     try:
         genai.configure(api_key=api_key)
         # 🌟 修正：加上 -latest 後綴，確保 Google 伺服器能正確辨識
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         img = Image.open(img_file)
         # 給 AI 的提示詞 (Prompt)
