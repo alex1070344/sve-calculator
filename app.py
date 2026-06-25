@@ -57,28 +57,34 @@ def fetch_decklog(deck_code, auto_cheapest=False):
         return False, f"API 解析發生錯誤: {e}"
 
 # ==========================================
-# 🌟 0.5 核心引擎：Gemini AI 圖片掃描 (修正模型名稱版)
+# ==========================================
+# 🌟 0.5 核心引擎：Gemini AI 圖片掃描 (升級多卡辨識版)
 def scan_card_image(img_file, api_key):
     try:
         genai.configure(api_key=api_key)
-        # 🌟 修正：加上 -latest 後綴，確保 Google 伺服器能正確辨識
         model = genai.GenerativeModel('gemini-2.5-flash')
-        
         img = Image.open(img_file)
-        # 給 AI 的提示詞 (Prompt)
-        prompt = "這是一張 Shadowverse Evolve (SVE) 的實體卡片。請運用你的視覺找出這張卡片的「卡號」。卡號格式通常為英文字母加數字，中間有連字號（例如 BP01-001, SD01-005, PR-001, BP15-054）。請盡可能精準，並且只回傳你找到的卡號文字即可，不要回傳任何其他多餘的字或解釋。"
+        
+        # 🌟 修正提示詞：明確要求 AI 找出「所有」看得到的卡號
+        prompt = (
+            "這是一張包含多張 Shadowverse Evolve (SVE) 實體卡片的照片。"
+            "請運用你的視覺找出照片中「所有」卡片的「卡號」。"
+            "卡號格式通常為英文字母加數字，中間有連字號（例如 BP01-001, SD01-005, PR-001, BP15-054）。"
+            "請盡可能精準，將你找到的所有卡號全部列出來，用逗號或換行隔開即可，不要回傳任何其他多餘的字或解釋。"
+        )
         
         response = model.generate_content([prompt, img])
         scanned_text = response.text.strip().upper()
         
-        # 使用正規表達式，確保萃取出來的是合法的卡號格式 (防呆機制)
-        match = re.search(r'([A-Z]+[0-9]*-[0-9A-Z]+)', scanned_text)
-        if match:
-            return True, match.group(1), scanned_text
+        # 🌟 關鍵修正：改用 re.findall，這會把網頁文字裡「所有符合格式的卡號」通通抓出來變成一個 List
+        card_ids = re.findall(r'([A-Z]+[0-9]*-[0-9A-Z]+)', scanned_text)
+        
+        if card_ids:
+            return True, card_ids, scanned_text  # 回傳成功狀態與卡號清單
         else:
-            return False, "", scanned_text
+            return False, [], scanned_text
     except Exception as e:
-        return False, "", str(e)
+        return False, [], str(e)
 
 # ==========================================
 # 🌟 1. 初始化 Google Sheet 連線
@@ -283,18 +289,25 @@ with tab1:
                     st.warning("⚠️ 請先在上方輸入 Gemini API Key 才能執行 AI 辨識。")
                 else:
                     if st.button("🔍 執行 AI 辨識並加入牌組", type="primary", key="btn_scan_deck"):
-                        with st.spinner("AI 正在解析卡圖中..."):
-                            success, c_id, raw_text = scan_card_image(active_img_deck, gemini_key_deck)
+                        with st.spinner("AI 正在火力全開解析多張卡圖中..."):
+                            success, c_ids, raw_text = scan_card_image(active_img_deck, gemini_key_deck)
                             if success:
-                                if auto_cheapest: c_id = get_cheapest_version(c_id)
-                                if c_id in prices:
-                                    st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + 1
-                                    st.success(f"🎉 成功掃描並加入：{c_id} - {card_names.get(c_id, '')}")
+                                added_cards = []
+                                # 🌟 用迴圈處理清單裡的每一張卡號
+                                for c_id in c_ids:
+                                    if auto_cheapest: 
+                                        c_id = get_cheapest_version(c_id)
+                                    if c_id in prices:
+                                        st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + 1
+                                        added_cards.append(f"{c_id}({card_names.get(c_id, '未知')})")
+                                
+                                if added_cards:
+                                    st.success(f"🎉 成功一口氣掃描並加入 {len(added_cards)} 張卡片！\n\n詳細明細：{', '.join(added_cards)}")
                                     st.rerun()
                                 else:
-                                    st.warning(f"掃描出卡號 {c_id}，但不在我們的資料庫中！")
+                                    st.warning("雖然掃描到了卡號，但比對後發現都不在我們的資料庫中。")
                             else:
-                                st.error(f"辨識失敗，AI 找到的文字：{raw_text}")
+                                st.error(f"辨識失敗，AI 未能找到任何卡號。")
                                 
             st.divider()
             
@@ -428,18 +441,24 @@ with tab2:
                     st.warning("⚠️ 請先輸入 Gemini API Key 才能執行 AI 辨識。")
                 else:
                     if st.button("🔍 執行 AI 辨識並加入背包", type="primary", key="btn_scan_inv"):
-                        with st.spinner("AI 正在精準定位卡圖中..."):
-                            success, c_id, raw_text = scan_card_image(active_img_inv, gemini_key_inv)
+                        with st.spinner("AI 正在精準定位多張卡圖並登記入庫..."):
+                            success, c_ids, raw_text = scan_card_image(active_img_inv, gemini_key_inv)
                             if success:
-                                if c_id in prices:
-                                    st.session_state.my_inventory[c_id] = st.session_state.my_inventory.get(c_id, 0) + 1
+                                added_count = 0
+                                # 🌟 用迴圈把辨識到的卡片通通 +1 張
+                                for c_id in c_ids:
+                                    if c_id in prices:
+                                        st.session_state.my_inventory[c_id] = st.session_state.my_inventory.get(c_id, 0) + 1
+                                        added_count += 1
+                                
+                                if added_count > 0:
                                     st.session_state.unsaved_changes = True
-                                    st.success(f"🎉 成功辨識並入庫：{c_id} - {card_names.get(c_id, '')} (+1 張)")
+                                    st.success(f"🎉 跨時空多卡辨識成功！已自動將 {added_count} 張卡片暫存入庫！(別忘了按下上方的儲存鈕喔！)")
                                     st.rerun()
                                 else:
-                                    st.warning(f"掃描出卡號 {c_id}，但不在我們的價格庫中！")
+                                    st.warning("辨識出的卡號皆不在我們的價格資料庫中。")
                             else:
-                                st.error(f"辨識失敗，AI 未能找到卡號。它看到的內容是：{raw_text}")
+                                st.error(f"辨識失敗，AI 看到的內容是：{raw_text}")
     with col_img2:
         if selected_option2 != "請選擇...":
             st.image(get_card_image_url(selected_option2.split(" - ")[0]), width=150)
