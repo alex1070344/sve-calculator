@@ -105,7 +105,11 @@ with tab_overview:
 with tab_gallery:
     st.subheader(f"📖 【{selected_backpack}】全圖鑑收集冊")
     if st.session_state.unsaved_changes:
-        st.warning("⚠️ 你有尚未儲存的庫存變更！點擊加號或減號後，請記得去側邊欄或背包區進行『雲端儲存』。")
+        st.warning("⚠️ 你有尚未儲存的庫存變更！")
+        if st.button("💾 儲存至雲端 (圖鑑)", type="primary"):
+            if utils.save_inventory_to_sheets(st.session_state.current_sheet):
+                st.success("🎉 儲存成功！")
+                st.rerun()
         
     col_gal_p, col_gal_r, col_gal_s = st.columns([2, 2, 2])
     with col_gal_p:
