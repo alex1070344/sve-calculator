@@ -20,6 +20,9 @@ if "deck_list" not in st.session_state: st.session_state.deck_list = {}
 if "my_inventory" not in st.session_state: st.session_state.my_inventory = {}
 if "current_bp_name" not in st.session_state: st.session_state.current_bp_name = ""
 if "unsaved_changes" not in st.session_state: st.session_state.unsaved_changes = False
+# 🌟 補上這兩行：用來記住上次掃描成功的卡片，供前端生成對照圖鑑
+if "last_scanned_deck" not in st.session_state: st.session_state.last_scanned_deck = []
+if "last_scanned_inv" not in st.session_state: st.session_state.last_scanned_inv = []
 
 # ==========================================
 # 🌟 0. 核心引擎：Deck Log API 直連版
@@ -292,14 +295,39 @@ with tab1:
                         with st.spinner("AI 正在火力全開解析多張卡圖中..."):
                             success, c_ids, raw_text = scan_card_image(active_img_deck, gemini_key_deck)
                             if success:
-                                added_cards = []
-                                # 🌟 用迴圈處理清單裡的每一張卡號
+                                valid_ids = []
                                 for c_id in c_ids:
                                     if auto_cheapest: 
                                         c_id = get_cheapest_version(c_id)
                                     if c_id in prices:
                                         st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + 1
-                                        added_cards.append(f"{c_id}({card_names.get(c_id, '未知')})")
+                                        valid_ids.append(c_id)
+                                
+                                if valid_ids:
+                                    # 🌟 記住這次成功加入的卡號列表，並刷新網頁
+                                    st.session_state.last_scanned_deck = valid_ids
+                                    st.rerun()
+                                else:
+                                    st.warning("雖然掃描到了卡號，但比對後發現都不在我們的資料庫中。")
+                            else:
+                                st.error(f"辨識失敗，AI 未能找到任何卡號。")
+                                
+            # 🌟 新增：在辨識按鈕下方，動態渲染「卡圖確認網格」
+            if st.session_state.last_scanned_deck:
+                st.markdown("---")
+                st.markdown("### 👁️ 上次掃描結果視覺確認 (請核對實體卡片)")
+                st.caption("以下為 AI 剛剛自動幫您加入結帳明細的卡片。如果發現有錯或漏掉，可直接在下方明細調整張數。")
+                
+                if st.button("🧹 關閉/完成確認", key="clear_preview_deck"):
+                    st.session_state.last_scanned_deck = []
+                    st.rerun()
+                    
+                # 建立 4 分欄網格，橫向排列卡圖
+                cols_deck = st.columns(4)
+                for idx, c_id in enumerate(st.session_state.last_scanned_deck):
+                    with cols_deck[idx % 4]:
+                        st.image(get_card_image_url(c_id), width=120)
+                        st.caption(f"**{c_id}**\n{card_names.get(c_id, '未知')}")
                                 
                                 if added_cards:
                                     st.success(f"🎉 成功一口氣掃描並加入 {len(added_cards)} 張卡片！\n\n詳細明細：{', '.join(added_cards)}")
@@ -444,21 +472,36 @@ with tab2:
                         with st.spinner("AI 正在精準定位多張卡圖並登記入庫..."):
                             success, c_ids, raw_text = scan_card_image(active_img_inv, gemini_key_inv)
                             if success:
-                                added_count = 0
-                                # 🌟 用迴圈把辨識到的卡片通通 +1 張
+                                valid_ids = []
                                 for c_id in c_ids:
                                     if c_id in prices:
                                         st.session_state.my_inventory[c_id] = st.session_state.my_inventory.get(c_id, 0) + 1
-                                        added_count += 1
+                                        valid_ids.append(c_id)
                                 
-                                if added_count > 0:
+                                if valid_ids:
+                                    st.session_state.last_scanned_inv = valid_ids
                                     st.session_state.unsaved_changes = True
-                                    st.success(f"🎉 跨時空多卡辨識成功！已自動將 {added_count} 張卡片暫存入庫！(別忘了按下上方的儲存鈕喔！)")
                                     st.rerun()
                                 else:
                                     st.warning("辨識出的卡號皆不在我們的價格資料庫中。")
                             else:
                                 st.error(f"辨識失敗，AI 看到的內容是：{raw_text}")
+                                
+        # 🌟 新增：在背包區辨識按鈕下方，動態渲染「卡圖確認網格」
+        if st.session_state.last_scanned_inv:
+            st.markdown("---")
+            st.markdown("### 👁️ 上次掃描結果視覺確認 (請核對實體卡片)")
+            st.caption("以下卡片已成功送入臨時背包。請確認卡圖與實體卡是否一致，沒問題請點選上方『儲存至雲端』。")
+            
+            if st.button("🧹 關閉/完成確認", key="clear_preview_inv"):
+                st.session_state.last_scanned_inv = []
+                st.rerun()
+                
+            cols_inv = st.columns(4)
+            for idx, c_id in enumerate(st.session_state.last_scanned_inv):
+                with cols_inv[idx % 4]:
+                    st.image(get_card_image_url(c_id), width=120)
+                    st.caption(f"**{c_id}**\n{card_names.get(c_id, '未知')}")
     with col_img2:
         if selected_option2 != "請選擇...":
             st.image(get_card_image_url(selected_option2.split(" - ")[0]), width=150)
