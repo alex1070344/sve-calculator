@@ -36,16 +36,17 @@ if "gallery_page" not in st.session_state: st.session_state.gallery_page = 1
 
 # ==========================================
 # 🌟 全域資料載入 (從 utils 呼叫)
-client = utils.init_gspread_client()
-if not client: st.stop()
-
-try:
-    # ⚠️⚠️⚠️ 記得換成你的試算表 ID ⚠️⚠️⚠️
-    sheet_id = "1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4" 
-    st.session_state.doc = client.open_by_key(sheet_id)
-except Exception as e:
-    st.error(f"無法開啟試算表：{e}")
-    st.stop()
+# 1. 確保連線物件只初始化一次
+if "doc" not in st.session_state:
+    client = utils.init_gspread_client()
+    if client:
+        try:
+            st.session_state.doc = client.open_by_key("1Re2ZLcJKkFqyGe3sXaieAeB8E9U9k4PxghYbKAuXSZ4")
+        except Exception as e:
+            st.error(f"無法開啟試算表：{e}")
+            st.stop()
+    else:
+        st.stop()
 
 prices, card_images, card_names, name_to_ids, all_cards, packs = utils.load_card_data()
 
@@ -89,8 +90,9 @@ st.session_state.current_sheet = st.session_state.doc.worksheet(selected_backpac
 st.session_state.selected_backpack = selected_backpack
 
 # 切換背包時的邏輯處理
-if st.session_state.current_bp_name != selected_backpack:
+if "current_sheet" not in st.session_state or st.session_state.current_bp_name != selected_backpack:
     try:
+        st.session_state.current_sheet = st.session_state.doc.worksheet(selected_backpack)
         records = st.session_state.current_sheet.get_all_records()
         st.session_state.my_inventory = {str(row['卡號']): int(row['擁有數量']) for row in records if '卡號' in row}
         st.session_state.current_bp_name = selected_backpack
