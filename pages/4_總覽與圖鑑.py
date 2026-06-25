@@ -189,14 +189,14 @@ with tab_gallery:
                         if st.button("➖", key=f"gal_m_{c_id}", use_container_width=True, disabled=owned_qty == 0):
                             st.session_state.my_inventory[c_id] -= 1
                             st.session_state.unsaved_changes = True
-                            st.rerun()
+                            #st.rerun()
                     with c_q:
                         st.markdown(f"<div style='text-align: center; padding-top: 5px;'><b>{owned_qty}</b></div>", unsafe_allow_html=True)
                     with c_p:
                         if st.button("➕", key=f"gal_p_{c_id}", use_container_width=True):
                             st.session_state.my_inventory[c_id] = owned_qty + 1
                             st.session_state.unsaved_changes = True
-                            st.rerun()
+                            #st.rerun()
             st.markdown("<br>", unsafe_allow_html=True)
 
         st.markdown("---")
