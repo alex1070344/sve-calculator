@@ -8,6 +8,9 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
+# 🌟 新增：用於影像處理與 Gemini AI 視覺辨識
+from PIL import Image
+import google.generativeai as genai
 
 st.set_page_config(page_title="SVE 缺卡計算機", page_icon="🃏", layout="wide")
 
@@ -52,6 +55,29 @@ def fetch_decklog(deck_code, auto_cheapest=False):
         return False, f"連線 API 失敗 (狀態碼: {res.status_code})"
     except Exception as e:
         return False, f"API 解析發生錯誤: {e}"
+
+# ==========================================
+# 🌟 0.5 核心引擎：Gemini AI 圖片掃描
+def scan_card_image(img_file, api_key):
+    try:
+        genai.configure(api_key=api_key)
+        # 使用擅長視覺處理的 flash 模型
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        img = Image.open(img_file)
+        # 給 AI 的提示詞 (Prompt)
+        prompt = "這是一張 Shadowverse Evolve (SVE) 的實體卡片。請運用你的視覺找出這張卡片的「卡號」。卡號格式通常為英文字母加數字，中間有連字號（例如 BP01-001, SD01-005, PR-001, BP15-054）。請盡可能精準，並且只回傳你找到的卡號文字即可，不要回傳任何其他多餘的字或解釋。"
+        
+        response = model.generate_content([prompt, img])
+        scanned_text = response.text.strip().upper()
+        
+        # 使用正規表達式，確保萃取出來的是合法的卡號格式 (防呆機制)
+        match = re.search(r'([A-Z]+[0-9]*-[0-9A-Z]+)', scanned_text)
+        if match:
+            return True, match.group(1), scanned_text
+        else:
+            return False, "", scanned_text
+    except Exception as e:
+        return False, "", str(e)
 
 # ==========================================
 # 🌟 1. 初始化 Google Sheet 連線
@@ -155,7 +181,7 @@ def get_prefix(card_id):
 prices = {}
 card_images = {}
 card_names = {}
-name_to_ids = {} # 🌟 新增：記錄同名卡的所有版本 (卡名 -> [卡號1, 卡號2...])
+name_to_ids = {}
 
 try:
     with open("cards_price.csv", "r", encoding="utf-8-sig") as file:
@@ -168,7 +194,6 @@ try:
                 card_images[row[0]] = row[2]
             if len(row) >= 4:
                 card_names[row[0]] = row[3]
-                # 🌟 建立卡名與卡號的對照表
                 if row[3] not in name_to_ids:
                     name_to_ids[row[3]] = []
                 name_to_ids[row[3]].append(row[0])
@@ -178,55 +203,31 @@ def get_card_image_url(card_id):
     return card_images.get(card_id) if card_images.get(card_id) else f"https://placehold.co/150x210/1E1E1E/FFD700.png?text={card_id}"
 
 def get_card_version_type(c_id, name):
-    """
-    判斷卡片是進化前、進化後、還是無進化(或未知)
-    透過比對卡號前後 -1 / +1 是否存在同名卡來精準區分
-    """
     match = re.match(r"^(.*?)(\d+)$", c_id)
-    if not match:
-        return "unknown"
+    if not match: return "unknown"
     
     prefix = match.group(1)
     num_str = match.group(2)
     num = int(num_str)
     num_len = len(num_str)
     
-    # 計算相鄰的卡號 (保留原本的補零格式，如 001, 054)
     prev_id = f"{prefix}{(num-1):0{num_len}d}"
     next_id = f"{prefix}{(num+1):0{num_len}d}"
     
     same_name_ids = name_to_ids.get(name, [])
     
-    # 如果「卡號-1」也是同名卡，代表自己是進化後
-    if prev_id in same_name_ids:
-        return "evolved"
-    # 如果「卡號+1」也是同名卡，代表自己是進化前
-    elif next_id in same_name_ids:
-        return "unevolved"
-    else:
-        # 法術、護符或單獨存在的 PR 卡
-        return "unknown"
+    if prev_id in same_name_ids: return "evolved"
+    elif next_id in same_name_ids: return "unevolved"
+    else: return "unknown"
 
-# 🌟 修改：尋找同名且「進化狀態相同」的最低價版本
 def get_cheapest_version(c_id):
     name = card_names.get(c_id)
-    if not name or name not in name_to_ids:
-        return c_id
+    if not name or name not in name_to_ids: return c_id
     
-    # 先確認這張卡是 進化前、進化後 還是 未知
     target_version = get_card_version_type(c_id, name)
-    
-    # 找出所有同名，且「進化狀態也一樣」的卡片，過濾掉沒有價格紀錄的
-    valid_candidates = []
-    for candidate_id in name_to_ids[name]:
-        if candidate_id in prices:
-            if get_card_version_type(candidate_id, name) == target_version:
-                valid_candidates.append(candidate_id)
+    valid_candidates = [cid for cid in name_to_ids[name] if cid in prices and get_card_version_type(cid, name) == target_version]
                 
-    if not valid_candidates:
-        return c_id
-        
-    # 找出價格最低的那個卡號
+    if not valid_candidates: return c_id
     cheapest_id = min(valid_candidates, key=lambda x: prices.get(x, float('inf')))
     return cheapest_id
 
@@ -234,7 +235,7 @@ all_cards = list(prices.keys())
 packs = sorted(list(set([card.split('-')[0] for card in all_cards if '-' in card])))
 
 # ==========================================
-# 🌟 4. 網頁介面設計 (新增第四個 Tab)
+# 🌟 4. 網頁介面設計
 tab1, tab2, tab3, tab4 = st.tabs(["🧾 牌組結帳 (計算缺卡)", "🎒 我的庫存與資產", "💰 單卡價格與卡圖查詢", "📊 所有背包總覽"])
 
 # ----- 分頁 1：結帳區 -----
@@ -263,10 +264,45 @@ with tab1:
                 st.success(f"✅ 已將 {deck_qty} 張 【{c_id}】 加入牌組！")
                 st.rerun()
                 
-        with st.expander("📝 進階：批次匯入牌組 (支援 官方代碼 / 文字 / CSV)"):
-            # 🌟 新增選項：讓使用者決定是否開啟「自動替換低價」
-            auto_cheapest = st.checkbox("💸 抄牌時自動將卡片替換為「同名最低價」版本", value=True)
+        # 🌟 擴充：加入 AI 掃描與進階匯入
+        with st.expander("📝 進階：批次匯入與 📸 AI 圖片掃描"):
+            auto_cheapest = st.checkbox("💸 抄牌或掃描時自動將卡片替換為「同名最低價」版本", value=True, key="chk_cheap_deck")
+            st.divider()
             
+            # --- AI 掃描區塊 (結帳區) ---
+            st.write("#### 📸 AI 圖片拍照掃描入庫")
+            gemini_key_deck = st.text_input("輸入 Gemini API Key 來啟用 AI 掃描：", type="password", key="gemini_key_deck")
+            st.caption("免費的 Gemini API Key 可於 [Google AI Studio](https://aistudio.google.com/) 取得。")
+            
+            col_scan_btn, col_scan_up = st.columns(2)
+            with col_scan_btn:
+                img_file_deck_cam = st.camera_input("📷 開啟相機掃描", key="cam_deck")
+            with col_scan_up:
+                img_file_deck_up = st.file_uploader("📂 上傳卡片圖片", type=["jpg", "jpeg", "png"], key="up_deck")
+                
+            active_img_deck = img_file_deck_cam or img_file_deck_up
+            
+            if active_img_deck:
+                if not gemini_key_deck:
+                    st.warning("⚠️ 請先在上方輸入 Gemini API Key 才能執行 AI 辨識。")
+                else:
+                    if st.button("🔍 執行 AI 辨識並加入牌組", type="primary", key="btn_scan_deck"):
+                        with st.spinner("AI 正在解析卡圖中..."):
+                            success, c_id, raw_text = scan_card_image(active_img_deck, gemini_key_deck)
+                            if success:
+                                if auto_cheapest: c_id = get_cheapest_version(c_id)
+                                if c_id in prices:
+                                    st.session_state.deck_list[c_id] = st.session_state.deck_list.get(c_id, 0) + 1
+                                    st.success(f"🎉 成功掃描並加入：{c_id} - {card_names.get(c_id, '')}")
+                                    st.rerun()
+                                else:
+                                    st.warning(f"掃描出卡號 {c_id}，但不在我們的資料庫中！")
+                            else:
+                                st.error(f"辨識失敗，AI 找到的文字：{raw_text}")
+                                
+            st.divider()
+            
+            # --- 原本的批次匯入與 API ---
             col_text, col_csv, col_code = st.columns(3)
             with col_text:
                 deck_input = st.text_area("✍️ 貼上牌組文字：", placeholder="例如: BP01-001 3", height=100)
@@ -304,12 +340,11 @@ with tab1:
                         st.rerun()
                     except Exception as e: st.error(f"檔案讀取失敗：{e}")
             with col_code:
-                st.write("#### 🌐 Deck Log 官方代碼")
-                st.caption("輸入 Bushiroad 牌組代碼 (如 6JBC3)")
+                st.write("#### 🌐 Deck Log 代碼")
                 decklog_code = st.text_input("輸入代碼：", key="decklog_code_input")
                 if st.button("🚀 雲端抓取牌組"):
                     if decklog_code:
-                        with st.spinner("正在前往 Deck Log 抓取牌組資料..."):
+                        with st.spinner("前往 Deck Log 抓取中..."):
                             success, msg = fetch_decklog(decklog_code, auto_cheapest)
                             if success: st.success(msg); st.rerun()
                             else: st.error(msg)
@@ -383,6 +418,37 @@ with tab2:
                 st.session_state.my_inventory[c_id] = st.session_state.my_inventory.get(c_id, 0) + qty_to_add
                 st.session_state.unsaved_changes = True 
                 st.rerun()
+                
+        # 🌟 背包區的 AI 圖片掃描擴充
+        with st.expander("📸 AI 智慧圖片掃描入庫 (拍照/上傳)"):
+            st.write("使用手機相機或上傳卡圖，讓 AI 自動幫你找出卡號並登記入庫！")
+            gemini_key_inv = st.text_input("輸入 Gemini API Key：", type="password", key="gemini_key_inv")
+            
+            col_inv_cam, col_inv_up = st.columns(2)
+            with col_inv_cam:
+                img_file_inv_cam = st.camera_input("📷 開啟相機", key="cam_inv")
+            with col_inv_up:
+                img_file_inv_up = st.file_uploader("📂 上傳圖片", type=["jpg", "jpeg", "png"], key="up_inv")
+                
+            active_img_inv = img_file_inv_cam or img_file_inv_up
+            
+            if active_img_inv:
+                if not gemini_key_inv:
+                    st.warning("⚠️ 請先輸入 Gemini API Key 才能執行 AI 辨識。")
+                else:
+                    if st.button("🔍 執行 AI 辨識並加入背包", type="primary", key="btn_scan_inv"):
+                        with st.spinner("AI 正在精準定位卡圖中..."):
+                            success, c_id, raw_text = scan_card_image(active_img_inv, gemini_key_inv)
+                            if success:
+                                if c_id in prices:
+                                    st.session_state.my_inventory[c_id] = st.session_state.my_inventory.get(c_id, 0) + 1
+                                    st.session_state.unsaved_changes = True
+                                    st.success(f"🎉 成功辨識並入庫：{c_id} - {card_names.get(c_id, '')} (+1 張)")
+                                    st.rerun()
+                                else:
+                                    st.warning(f"掃描出卡號 {c_id}，但不在我們的價格庫中！")
+                            else:
+                                st.error(f"辨識失敗，AI 未能找到卡號。它看到的內容是：{raw_text}")
     with col_img2:
         if selected_option2 != "請選擇...":
             st.image(get_card_image_url(selected_option2.split(" - ")[0]), width=150)
