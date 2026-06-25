@@ -271,17 +271,12 @@ with tab1:
             st.divider()
             
             # --- AI 掃描區塊 (結帳區) ---
-            st.write("#### 📸 AI 圖片拍照掃描入庫")
+            st.write("#### 📸 AI 圖片上傳辨識")
             gemini_key_deck = st.text_input("輸入 Gemini API Key 來啟用 AI 掃描：", type="password", key="gemini_key_deck")
             st.caption("免費的 Gemini API Key 可於 [Google AI Studio](https://aistudio.google.com/) 取得。")
             
-            col_scan_btn, col_scan_up = st.columns(2)
-            with col_scan_btn:
-                img_file_deck_cam = st.camera_input("📷 開啟相機掃描", key="cam_deck")
-            with col_scan_up:
-                img_file_deck_up = st.file_uploader("📂 上傳卡片圖片", type=["jpg", "jpeg", "png"], key="up_deck")
-                
-            active_img_deck = img_file_deck_cam or img_file_deck_up
+            # 🌟 只保留檔案上傳功能
+            active_img_deck = st.file_uploader("📂 上傳卡片圖片", type=["jpg", "jpeg", "png"], key="up_deck")
             
             if active_img_deck:
                 if not gemini_key_deck:
@@ -421,17 +416,12 @@ with tab2:
                 st.rerun()
                 
         # 🌟 背包區的 AI 圖片掃描擴充
-        with st.expander("📸 AI 智慧圖片掃描入庫 (拍照/上傳)"):
-            st.write("使用手機相機或上傳卡圖，讓 AI 自動幫你找出卡號並登記入庫！")
+        with st.expander("📸 AI 智慧圖片掃描入庫 (上傳圖片)"):
+            st.write("上傳卡圖照片，讓 AI 自動幫你找出卡號並登記入庫！")
             gemini_key_inv = st.text_input("輸入 Gemini API Key：", type="password", key="gemini_key_inv")
             
-            col_inv_cam, col_inv_up = st.columns(2)
-            with col_inv_cam:
-                img_file_inv_cam = st.camera_input("📷 開啟相機", key="cam_inv")
-            with col_inv_up:
-                img_file_inv_up = st.file_uploader("📂 上傳圖片", type=["jpg", "jpeg", "png"], key="up_inv")
-                
-            active_img_inv = img_file_inv_cam or img_file_inv_up
+            # 🌟 只保留檔案上傳功能
+            active_img_inv = st.file_uploader("📂 上傳圖片", type=["jpg", "jpeg", "png"], key="up_inv")
             
             if active_img_inv:
                 if not gemini_key_inv:
