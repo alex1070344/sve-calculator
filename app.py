@@ -7,6 +7,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+import re
 
 st.set_page_config(page_title="SVE 缺卡計算機", page_icon="🃏", layout="wide")
 
@@ -176,14 +177,52 @@ except: pass
 def get_card_image_url(card_id):
     return card_images.get(card_id) if card_images.get(card_id) else f"https://placehold.co/150x210/1E1E1E/FFD700.png?text={card_id}"
 
-# 🌟 新增：尋找同名最低價版本的函數
+def get_card_version_type(c_id, name):
+    """
+    判斷卡片是進化前、進化後、還是無進化(或未知)
+    透過比對卡號前後 -1 / +1 是否存在同名卡來精準區分
+    """
+    match = re.match(r"^(.*?)(\d+)$", c_id)
+    if not match:
+        return "unknown"
+    
+    prefix = match.group(1)
+    num_str = match.group(2)
+    num = int(num_str)
+    num_len = len(num_str)
+    
+    # 計算相鄰的卡號 (保留原本的補零格式，如 001, 054)
+    prev_id = f"{prefix}{(num-1):0{num_len}d}"
+    next_id = f"{prefix}{(num+1):0{num_len}d}"
+    
+    same_name_ids = name_to_ids.get(name, [])
+    
+    # 如果「卡號-1」也是同名卡，代表自己是進化後
+    if prev_id in same_name_ids:
+        return "evolved"
+    # 如果「卡號+1」也是同名卡，代表自己是進化前
+    elif next_id in same_name_ids:
+        return "unevolved"
+    else:
+        # 法術、護符或單獨存在的 PR 卡
+        return "unknown"
+
+# 🌟 修改：尋找同名且「進化狀態相同」的最低價版本
 def get_cheapest_version(c_id):
     name = card_names.get(c_id)
     if not name or name not in name_to_ids:
         return c_id
     
-    # 找出所有同名卡，並過濾掉沒有價格紀錄的
-    valid_candidates = [c for c in name_to_ids[name] if c in prices]
+    # 先確認這張卡是 進化前、進化後 還是 未知
+    target_version = get_card_version_type(c_id, name)
+    
+    # 找出所有同名，且「進化狀態也一樣」的卡片，過濾掉沒有價格紀錄的
+    valid_candidates = []
+    for candidate_id in name_to_ids[name]:
+        if candidate_id in prices:
+            if get_card_version_type(candidate_id, name) == target_version:
+                valid_candidates.append(candidate_id)
+                
     if not valid_candidates:
         return c_id
         
