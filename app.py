@@ -57,12 +57,13 @@ def fetch_decklog(deck_code, auto_cheapest=False):
         return False, f"API 解析發生錯誤: {e}"
 
 # ==========================================
-# 🌟 0.5 核心引擎：Gemini AI 圖片掃描
+# 🌟 0.5 核心引擎：Gemini AI 圖片掃描 (修正模型名稱版)
 def scan_card_image(img_file, api_key):
     try:
         genai.configure(api_key=api_key)
-        # 使用擅長視覺處理的 flash 模型
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # 🌟 修正：加上 -latest 後綴，確保 Google 伺服器能正確辨識
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        
         img = Image.open(img_file)
         # 給 AI 的提示詞 (Prompt)
         prompt = "這是一張 Shadowverse Evolve (SVE) 的實體卡片。請運用你的視覺找出這張卡片的「卡號」。卡號格式通常為英文字母加數字，中間有連字號（例如 BP01-001, SD01-005, PR-001, BP15-054）。請盡可能精準，並且只回傳你找到的卡號文字即可，不要回傳任何其他多餘的字或解釋。"
