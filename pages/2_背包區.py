@@ -94,6 +94,14 @@ col_title, col_value = st.columns([2, 1])
 with col_title: st.write("### 🎒 我的庫存清單")
 with col_value: st.info(f"💰 **總資產估值： {total_backpack_value} 円**")
 
+with st.expander(f"⚙️ 進階功能：匯出與匯入【{selected_backpack}】"):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["卡號", "擁有數量"])
+    for c_id, q in st.session_state.my_inventory.items():
+        if q > 0: writer.writerow([c_id, q])
+    st.download_button(label="📥 下載庫存 CSV 備份", data=output.getvalue(), file_name=f"{selected_backpack}_inventory.csv", mime="text/csv")
+
 if st.session_state.my_inventory and any(v > 0 for v in st.session_state.my_inventory.values()):
     col_f1, col_f2 = st.columns(2)
     owned_packs = sorted(list(set([k.split('-')[0] for k, v in st.session_state.my_inventory.items() if '-' in k and v > 0])))
@@ -132,10 +140,4 @@ if st.session_state.my_inventory and any(v > 0 for v in st.session_state.my_inve
     else: st.warning("無符合條件的卡片。")
 else: st.info("背包空空如也。")
 
-with st.expander(f"⚙️ 進階功能：匯出與匯入【{selected_backpack}】"):
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["卡號", "擁有數量"])
-    for c_id, q in st.session_state.my_inventory.items():
-        if q > 0: writer.writerow([c_id, q])
-    st.download_button(label="📥 下載庫存 CSV 備份", data=output.getvalue(), file_name=f"{selected_backpack}_inventory.csv", mime="text/csv")
+
