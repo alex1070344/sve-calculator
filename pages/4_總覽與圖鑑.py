@@ -3,51 +3,6 @@ import pandas as pd
 import math
 import utils
 
-# --- 🌟 核心魔法：注入自定義 CSS 強制手機端維持並排排版 ---
-st.markdown("""
-<style>
-@media (max-width: 768px) {
-    /* 強制所有的水平區塊不換行 */
-    [data-testid="stHorizontalBlock"] {
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        gap: 4px !important;
-    }
-    /* 移除預設的邊距限制 */
-    [data-testid="column"] {
-        min-width: 0 !important;
-        padding: 0 2px !important;
-    }
-    
-    /* 5欄並排 (卡片圖片區) */
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(5):last-child) > [data-testid="column"] {
-        width: 20% !important;
-        flex: 1 1 20% !important;
-    }
-    
-    /* 3欄並排 (加減按鈕區、分頁區、圖鑑過濾區) */
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(3):last-child) > [data-testid="column"] {
-        width: 33.33% !important;
-        flex: 1 1 33.33% !important;
-    }
-    
-    /* 2欄並排 (總覽區過濾) */
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(2):last-child) > [data-testid="column"] {
-        width: 50% !important;
-        flex: 1 1 50% !important;
-    }
-    
-    /* 縮小按鈕，確保手機上放得下 5 欄 */
-    .stButton > button {
-        padding: 0 !important;
-        min-height: 1.8rem !important;
-        font-size: 0.8rem !important;
-    }
-}
-</style>
-""", unsafe_allow_html=True)
-# ------------------------------------------------
-
 prices = st.session_state.prices
 card_names = st.session_state.card_names
 all_cards = st.session_state.all_cards
@@ -89,7 +44,7 @@ with tab_overview:
             except Exception as e:
                 st.error(f"跨背包整合失敗：{e}")
 
-    if st.session_state.get("master_data_cache"):
+    if st.session_state.master_data_cache:
         master_data = st.session_state.master_data_cache
         all_scanned_ids = list(master_data.keys())
         scanned_packs = sorted(list(set([cid.split('-')[0] for cid in all_scanned_ids if '-' in cid])))
@@ -149,7 +104,7 @@ with tab_overview:
 # 📖 ----- 圖鑑分頁 -----
 with tab_gallery:
     st.subheader(f"📖 【{selected_backpack}】全圖鑑收集冊")
-    if st.session_state.get("unsaved_changes"):
+    if st.session_state.unsaved_changes:
         st.warning("⚠️ 你有尚未儲存的庫存變更！點擊加號或減號後，請記得去側邊欄或背包區進行『雲端儲存』。")
         
     col_gal_p, col_gal_r, col_gal_s = st.columns([2, 2, 2])
@@ -190,23 +145,23 @@ with tab_gallery:
     total_items = len(gal_cards_filtered)
     total_pages = math.ceil(total_items / ITEMS_PER_PAGE) if total_items > 0 else 1
     
-    if st.session_state.get("gallery_page", 1) > total_pages: 
+    if st.session_state.gallery_page > total_pages: 
         st.session_state.gallery_page = total_pages
 
     if total_items > 0:
         col_pag_prev, col_pag_info, col_pag_next = st.columns([1, 4, 1])
         with col_pag_prev:
-            if st.button("⬅️ 上一頁", use_container_width=True, disabled=st.session_state.get("gallery_page", 1) == 1):
+            if st.button("⬅️ 上一頁", use_container_width=True, disabled=st.session_state.gallery_page == 1):
                 st.session_state.gallery_page -= 1
                 st.rerun()
         with col_pag_info:
-            st.markdown(f"<h4 style='text-align: center; font-size:1rem; padding-top:0.3rem;'>第 {st.session_state.get('gallery_page', 1)} 頁 / 共 {total_pages} 頁</h4>", unsafe_allow_html=True)
+            st.markdown(f"<h4 style='text-align: center;'>第 {st.session_state.gallery_page} 頁 / 共 {total_pages} 頁 (共 {total_items} 張)</h4>", unsafe_allow_html=True)
         with col_pag_next:
-            if st.button("下一頁 ➡️", use_container_width=True, disabled=st.session_state.get("gallery_page", 1) == total_pages):
+            if st.button("下一頁 ➡️", use_container_width=True, disabled=st.session_state.gallery_page == total_pages):
                 st.session_state.gallery_page += 1
                 st.rerun()
 
-        start_idx = (st.session_state.get("gallery_page", 1) - 1) * ITEMS_PER_PAGE
+        start_idx = (st.session_state.gallery_page - 1) * ITEMS_PER_PAGE
         end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
         current_page_cards = gal_cards_filtered[start_idx:end_idx]
 
@@ -219,14 +174,15 @@ with tab_gallery:
             for j, c_id in enumerate(row_cards):
                 with cols[j]:
                     owned_qty = st.session_state.my_inventory.get(c_id, 0)
-                    img_url = utils.get_card_image_url(c_id, st.session_state.get("card_images", {}))
+                    img_url = utils.get_card_image_url(c_id, st.session_state.card_images)
                     
                     css_class = "card-owned" if owned_qty > 0 else "card-unowned"
                     
+                    # 🌟 魔法改動點：加上了 max-height: 280px; 
+                    # 這樣在電腦上依然是 100% 寬（不到 280高），但在手機上就不會失控放大！
                     st.markdown(f'<img src="{img_url}" class="{css_class}" style="width:100%; max-height: 280px; object-fit:contain; border-radius: 8px;">', unsafe_allow_html=True)
                     
-                    # 調整為更精簡的字體大小，避免手機上文字破版
-                    st.markdown(f"<div style='text-align: center; margin-top: 4px; line-height: 1.1;'><span style='font-size: 0.7rem; font-weight: bold;'>{c_id}</span><br><span style='font-size: 0.6rem;'>{card_names.get(c_id, '未知')}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align: center; margin-top: 8px;'><small><b>{c_id}</b></small><br><small>{card_names.get(c_id, '未知')}</small></div>", unsafe_allow_html=True)
                     
                     c_m, c_q, c_p = st.columns([1, 1, 1])
                     with c_m:
@@ -235,7 +191,7 @@ with tab_gallery:
                             st.session_state.unsaved_changes = True
                             st.rerun()
                     with c_q:
-                        st.markdown(f"<div style='text-align: center; padding-top: 2px; font-size: 0.9rem;'><b>{owned_qty}</b></div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='text-align: center; padding-top: 5px;'><b>{owned_qty}</b></div>", unsafe_allow_html=True)
                     with c_p:
                         if st.button("➕", key=f"gal_p_{c_id}", use_container_width=True):
                             st.session_state.my_inventory[c_id] = owned_qty + 1
@@ -246,13 +202,13 @@ with tab_gallery:
         st.markdown("---")
         col_pag_prev_b, col_pag_info_b, col_pag_next_b = st.columns([1, 4, 1])
         with col_pag_prev_b:
-            if st.button("⬅️ 上一頁 ", use_container_width=True, key="prev_b", disabled=st.session_state.get("gallery_page", 1) == 1):
+            if st.button("⬅️ 上一頁 ", use_container_width=True, key="prev_b", disabled=st.session_state.gallery_page == 1):
                 st.session_state.gallery_page -= 1
                 st.rerun()
         with col_pag_info_b:
-            st.markdown(f"<div style='text-align: center; padding-top: 6px; font-size: 0.9rem;'>回到頁首</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; padding-top: 8px;'>回到頁首</div>", unsafe_allow_html=True)
         with col_pag_next_b:
-            if st.button("下一頁 ➡️ ", use_container_width=True, key="next_b", disabled=st.session_state.get("gallery_page", 1) == total_pages):
+            if st.button("下一頁 ➡️ ", use_container_width=True, key="next_b", disabled=st.session_state.gallery_page == total_pages):
                 st.session_state.gallery_page += 1
                 st.rerun()
     else:
