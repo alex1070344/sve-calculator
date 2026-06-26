@@ -14,9 +14,17 @@ prices = st.session_state.get("prices", {})
 card_names = st.session_state.get("card_names", {})
 worksheets = st.session_state.get("worksheets_list", [selected_backpack])
 
+# --- 本地輔助函數 (避免 utils.py 缺少函數報錯) ---
+def get_pack_name(c_id):
+    return str(c_id).split("-")[0] if "-" in str(c_id) else "其他"
+
+def get_prefix(c_id):
+    pack = get_pack_name(c_id)
+    return "".join([char for char in pack if char.isalpha()])
+
 # 圖鑑全卡表設定
 all_cards = sorted(list(st.session_state.get("card_images", {}).keys()))
-packs = sorted(list(set([utils.get_pack_name(c) for c in all_cards if "-" in c])))
+packs = sorted(list(set([get_pack_name(c) for c in all_cards if "-" in c])))
 
 st.title("📊 總覽與圖鑑")
 
@@ -106,7 +114,7 @@ with tab_overview:
         master_data = st.session_state.master_data_cache
         
         all_scanned_ids = sorted(list(master_data.keys()))
-        scanned_packs = sorted(list(set([utils.get_pack_name(cid) for cid in all_scanned_ids if "-" in cid])))
+        scanned_packs = sorted(list(set([get_pack_name(cid) for cid in all_scanned_ids if "-" in cid])))
         
         col_f1_t4, col_f2_t4 = st.columns(2)
         with col_f1_t4:
@@ -117,14 +125,14 @@ with tab_overview:
         else: 
             cards_filtered_by_pack = [cid for cid in all_scanned_ids if cid.startswith(filter_pack_t4 + "-")]
             
-        scanned_prefixes = sorted(list(set([utils.get_prefix(cid) for cid in cards_filtered_by_pack])))
+        scanned_prefixes = sorted(list(set([get_prefix(cid) for cid in cards_filtered_by_pack])))
         with col_f2_t4:
             filter_prefix_t4 = st.selectbox("2. 過濾編號前綴 (全景總覽)", ["全部"] + scanned_prefixes, key="filter_prefix_t4")
             
         if filter_prefix_t4 == "全部": 
             final_filtered_ids = cards_filtered_by_pack
         else: 
-            final_filtered_ids = [cid for cid in cards_filtered_by_pack if utils.get_prefix(cid) == filter_prefix_t4]
+            final_filtered_ids = [cid for cid in cards_filtered_by_pack if get_prefix(cid) == filter_prefix_t4]
             
         table_rows = []
         grand_total_value = 0      
@@ -181,7 +189,7 @@ with tab_gallery:
             st.session_state.prev_gal_pack = gal_pack
             
     gal_cards_pack = all_cards if gal_pack == "全部" else [c for c in all_cards if c.startswith(gal_pack + "-")]
-    gal_prefixes = sorted(list(set([utils.get_prefix(c) for c in gal_cards_pack])))
+    gal_prefixes = sorted(list(set([get_prefix(c) for c in gal_cards_pack])))
     
     with col_gal_r:
         gal_prefix = st.selectbox("圖鑑過濾前綴：", ["全部"] + gal_prefixes, key="gal_prefix")
@@ -190,7 +198,7 @@ with tab_gallery:
             st.session_state.gallery_page = 1
             st.session_state.prev_gal_prefix = gal_prefix
             
-    gal_cards_filtered = sorted(gal_cards_pack if gal_prefix == "全部" else [c for c in gal_cards_pack if utils.get_prefix(c) == gal_prefix])
+    gal_cards_filtered = sorted(gal_cards_pack if gal_prefix == "全部" else [c for c in gal_cards_pack if get_prefix(c) == gal_prefix])
     
     with col_gal_s:
         show_mode = st.selectbox("顯示模式：", ["顯示全部", "只看未擁有", "只看已擁有"], key="gal_mode")
