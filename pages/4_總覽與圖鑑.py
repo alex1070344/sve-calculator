@@ -3,57 +3,57 @@ import pandas as pd
 import math
 import utils
 
-prices = st.session_state.prices
-card_names = st.session_state.card_names
-all_cards = st.session_state.all_cards
-packs = st.session_state.packs
-selected_backpack = st.session_state.selected_backpack
-doc = st.session_state.doc
-
-st.title("📊 總覽與 📖 全圖鑑")
-tab_overview, tab_gallery = st.tabs(["📊 所有背包總覽", "📖 全圖鑑收集冊"])
-
-# -----------------------------------------------------------
-# 📊 ----- 總覽分頁 -----
-with tab_overview:
-    st.subheader("📊 全背包庫存交叉大總覽")
-    st.caption("點擊下方按鈕將會即時連線掃描 Google Sheet 內的所有分頁背包，並進行數據自動整合與資產清算。")
+# 🌟 新增：將匯出與匯入功能移到最上方，讓使用者不用往下拉
+with st.expander("⚙️ 進階功能：庫存匯出與匯入 (支援全背包整合)"):
+    st.write("### 📥 下載庫存 (匯出)")
+    # 讓使用者選擇要下載單一背包還是全部合併
+    export_mode = st.radio("選擇匯出範圍：", [f"📦 當前背包 ({st.session_state.current_bp_name})", "🌍 所有背包 (合併總計)"], horizontal=True)
     
-    worksheets = [ws.title for ws in doc.worksheets()]
+    if export_mode.startswith("📦"):
+        # 匯出當前背包 (直接讀取記憶體，不消耗 API)
+        current_inv = [{"卡號": k, "擁有數量": v} for k, v in st.session_state.my_inventory.items() if v > 0]
+        if current_inv:
+            df_export = pd.DataFrame(current_inv)
+            csv = df_export.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(f"📥 下載 {st.session_state.current_bp_name} CSV", data=csv, file_name=f"{st.session_state.current_bp_name}_庫存.csv", mime="text/csv")
+        else:
+            st.info("當前背包沒有卡片可供匯出。")
+            
+    else:
+        # 匯出所有背包 (利用總覽的快取資料，保護 API 不被鎖)
+        if st.session_state.master_data_cache is None:
+            st.warning("⚠️ 請先在下方的總覽區點擊「🔄 讀取並整合所有背包數據」按鈕，才能下載全部背包的整合資料喔！")
+        else:
+            merged_inv = [{"卡號": k, "擁有數量": v} for k, v in st.session_state.master_data_cache.items() if v > 0]
+            if merged_inv:
+                df_export = pd.DataFrame(merged_inv)
+                csv = df_export.to_csv(index=False).encode('utf-8-sig')
+                st.download_button("📥 下載所有背包合併 CSV", data=csv, file_name="全背包整合庫存.csv", mime="text/csv")
+            else:
+                st.info("所有背包都沒有卡片。")
+                
+    st.divider()
     
-    if st.button("🔄 讀取並整合所有背包數據", type="primary", use_container_width=True):
-        with st.spinner("正在穿越雲端，掃描所有背包分頁中...請稍候..."):
-            try:
-                master_data = {}
-                for ws_title in worksheets:
-                    ws = doc.worksheet(ws_title)
-                    rows = ws.get_all_records()
-                    for row in rows:
-                        if '卡號' in row and '擁有數量' in row:
-                            c_id = str(row['卡號']).strip()
-                            try: q = int(row['擁有數量'])
-                            except: q = 0
-                            
-                            if q > 0:
-                                if c_id not in master_data:
-                                    master_data[c_id] = {t: 0 for t in worksheets}
-                                master_data[c_id][ws_title] = q
-                                
-                st.session_state.master_data_cache = master_data
-                st.success("✅ 全背包雲端數據同步成功！已為您開啟下方篩選查找面板。")
-            except Exception as e:
-                st.error(f"跨背包整合失敗：{e}")
+    st.write("### 📤 上傳庫存 (匯入至當前背包)")
+    st.warning(f"這會將上傳的 CSV 資料加入到目前的【{st.session_state.current_bp_name}】，請確認卡號欄位正確。")
+    uploaded_file = st.file_uploader("上傳 CSV 備份檔", type=["csv"])
+    if uploaded_file is not None:
+        try:
+            df_import = pd.read_csv(uploaded_file)
+            if "卡號" in df_import.columns and "擁有數量" in df_import.columns:
+                for _, row in df_import.iterrows():
+                    cid = str(row["卡號"]).strip()
+                    qty = int(row["擁有數量"])
+                    if qty > 0:
+                        st.session_state.my_inventory[cid] = st.session_state.my_inventory.get(cid, 0) + qty
+                st.session_state.unsaved_changes = True
+                st.success("✅ 匯入成功！請記得點擊下方的「儲存至雲端」按鈕來正式寫入。")
+            else:
+                st.error("CSV 格式錯誤：必須包含「卡號」與「擁有數量」兩個欄位。")
+        except Exception as e:
+            st.error(f"讀取檔案失敗：{e}")
 
-    if st.session_state.master_data_cache:
-        master_data = st.session_state.master_data_cache
-        all_scanned_ids = list(master_data.keys())
-        scanned_packs = sorted(list(set([cid.split('-')[0] for cid in all_scanned_ids if '-' in cid])))
-        
-        st.write("---")
-        st.markdown("### 🛠️ 庫存分類篩選面板")
-        
-        col_f1_t4, col_f2_t4 = st.columns(2)
-        with col_f1_t4:
+# --- 接下來是原本的分頁 (tabs) 與總覽程式碼 ---
             filter_pack_t4 = st.selectbox("1. 過濾卡包 (全景總覽)", ["全部"] + scanned_packs, key="filter_pack_t4")
             
         if filter_pack_t4 == "全部": cards_filtered_by_pack = all_scanned_ids
@@ -105,11 +105,7 @@ with tab_overview:
 with tab_gallery:
     st.subheader(f"📖 【{selected_backpack}】全圖鑑收集冊")
     if st.session_state.unsaved_changes:
-        st.warning("⚠️ 你有尚未儲存的庫存變更！")
-        if st.button("💾 儲存至雲端 (圖鑑)", type="primary"):
-            if utils.save_inventory_to_sheets(st.session_state.current_sheet):
-                st.success("🎉 儲存成功！")
-                st.rerun()
+        st.warning("⚠️ 你有尚未儲存的庫存變更！點擊加號或減號後，請記得去側邊欄或背包區進行『雲端儲存』。")
         
     col_gal_p, col_gal_r, col_gal_s = st.columns([2, 2, 2])
     with col_gal_p:
