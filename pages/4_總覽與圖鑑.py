@@ -177,7 +177,11 @@ with tab_gallery:
                     img_url = utils.get_card_image_url(c_id, st.session_state.card_images)
                     
                     css_class = "card-owned" if owned_qty > 0 else "card-unowned"
-                    st.markdown(f'<img src="{img_url}" class="{css_class}" style="width:100%; object-fit:contain; border-radius: 8px;">', unsafe_allow_html=True)
+                    
+                    # 🌟 魔法改動點：加上了 max-height: 280px; 
+                    # 這樣在電腦上依然是 100% 寬（不到 280高），但在手機上就不會失控放大！
+                    st.markdown(f'<img src="{img_url}" class="{css_class}" style="width:100%; max-height: 280px; object-fit:contain; border-radius: 8px;">', unsafe_allow_html=True)
+                    
                     st.markdown(f"<div style='text-align: center; margin-top: 8px;'><small><b>{c_id}</b></small><br><small>{card_names.get(c_id, '未知')}</small></div>", unsafe_allow_html=True)
                     
                     c_m, c_q, c_p = st.columns([1, 1, 1])
